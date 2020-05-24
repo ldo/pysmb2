@@ -6,16 +6,28 @@ ctypes."""
 # Licensed under the GNU Lesser General Public License v2.1 or later.
 #-
 
-import os
+import sys # debug
 import ctypes as ct
 from weakref import \
+    ref as weak_ref, \
     WeakValueDictionary
 import atexit
+import select
 import asyncio
 
 smb2 = ct.cdll.LoadLibrary("libsmb2.so.1")
 
 class SMB2 :
+    "useful definitions adapted from the smb2 include files. You will need" \
+    " to use the constants, but apart from that, see the more Pythonic wrappers" \
+    " defined outside of this class in preference to accessing low-level structures" \
+    " directly."
+
+    # General ctypes gotcha: when passing addresses of ctypes-constructed objects
+    # to routine calls, do not construct the objects directly in the call. Otherwise
+    # the refcount goes to 0 before the routine is actually entered, and the object
+    # can get prematurely disposed. Always store the object reference into a local
+    # variable, and pass the value of the variable instead.
 
     # from smb2/smb2-errors.h:
     STATUS_SEVERITY_MASK = 0xc0000000
@@ -996,7 +1008,7 @@ class SMB2 :
             ]
     #end iovec
 
-    command_cb = ct.CFUNCTYPE(None, context_ptr, ct.c_int, ct.c_void_p, ct.c_void_p)
+    command_cb = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_int, ct.c_void_p, ct.c_void_p)
 
     TYPE_FILE = 0x00000000
     TYPE_DIRECTORY = 0x00000001
@@ -1273,7 +1285,7 @@ smb2.smb2_set_workstation.argtypes = (SMB2.context_ptr, ct.c_char_p)
 smb2.smb2_get_client_guid.restype = ct.c_char_p
 smb2.smb2_get_client_guid.argtypes = (SMB2.context_ptr,)
 
-smb2.smb2_connect_async.argtypes = (SMB2.context_ptr, ct.c_char_p)
+smb2.smb2_connect_async.argtypes = (SMB2.context_ptr, ct.c_char_p, SMB2.command_cb, ct.c_void_p)
 smb2.smb2_connect_async.restype = ct.c_int
 smb2.smb2_connect_share_async.argtypes = \
     (SMB2.context_ptr, ct.c_char_p, ct.c_char_p, ct.c_char_p, SMB2.command_cb, ct.c_void_p)
@@ -1310,19 +1322,14 @@ smb2.smb2_opendir_async.argtypes = (SMB2.context_ptr, ct.c_char_p, SMB2.command_
 smb2.smb2_opendir_async.restype = ct.c_int
 smb2.smb2_opendir.argtypes = (SMB2.context_ptr, ct.c_char_p)
 smb2.smb2_opendir.restype = SMB2.dir_ptr
-
 smb2.smb2_closedir.argtypes = (SMB2.context_ptr, SMB2.dir_ptr)
 smb2.smb2_closedir.restype = None
-
 smb2.smb2_readdir.argtypes = (SMB2.context_ptr, SMB2.dir_ptr)
 smb2.smb2_readdir.restype = ct.POINTER(SMB2.dirent)
-
 smb2.smb2_rewinddir.argtypes = (SMB2.context_ptr, SMB2.dir_ptr)
 smb2.smb2_rewinddir.restype = None
-
 smb2.smb2_telldir.argtypes = (SMB2.context_ptr, SMB2.dir_ptr)
 smb2.smb2_telldir.restype = ct.c_long
-
 smb2.smb2_seekdir.argtypes = (SMB2.context_ptr, SMB2.dir_ptr, ct.c_long)
 smb2.smb2_seekdir.restype = None
 
@@ -1331,12 +1338,10 @@ smb2.smb2_open_async.argtypes = \
 smb2.smb2_open_async.restype = ct.c_int
 smb2.smb2_open.argtypes = (SMB2.context_ptr, ct.c_char_p, ct.c_int)
 smb2.smb2_open.restype = SMB2.fh_ptr
-
 smb2.smb2_close_async.argtypes = (SMB2.context_ptr, SMB2.fh_ptr, SMB2.command_cb, ct.c_void_p)
 smb2.smb2_close_async.restype = ct.c_int
 smb2.smb2_close.argtypes = (SMB2.context_ptr, SMB2.fh_ptr)
 smb2.smb2_close.restype = ct.c_int
-
 smb2.smb2_fsync_async.argtypes = (SMB2.context_ptr, SMB2.fh_ptr, SMB2.command_cb, ct.c_void_p)
 smb2.smb2_fsync_async.restype = ct.c_int
 smb2.smb2_fsync.argtypes = (SMB2.context_ptr, SMB2.fh_ptr)
@@ -1374,6 +1379,7 @@ smb2.smb2_write.restype = ct.c_int
 smb2.smb2_lseek.argtypes = \
     (SMB2.context_ptr, SMB2.fh_ptr, ct.c_int64, ct.c_int, ct.POINTER(ct.c_uint64))
 smb2.smb2_lseek.restype = ct.c_int64
+
 smb2.smb2_unlink_async.argtypes = (SMB2.context_ptr, ct.c_char_p, SMB2.command_cb, ct.c_void_p)
 smb2.smb2_unlink_async.restype = ct.c_int
 smb2.smb2_unlink.argtypes = (SMB2.context_ptr, ct.c_char_p)
@@ -1591,7 +1597,7 @@ class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
     " use the create method."
 
-    __slots__ = ("_smbobj", "__weakref__") # to forestall typos
+    __slots__ = ("_smbobj", "__weakref__", "loop") # to forestall typos
 
     _instances = WeakValueDictionary()
 
@@ -1600,6 +1606,7 @@ class Context :
         if self == None :
             self = super().__new__(celf)
             self._smbobj = _smbobj
+            self.loop = None
             celf._instances[_smbobj] = self
         else :
             smb2.smb2_destroy_context(self._smbobj)
@@ -1705,7 +1712,87 @@ class Context :
             smb2.smb2_get_client_guid(self._smbobj).decode()
     #end client_guid
 
-    # TBD connect_async, connect_share_async, disconnect_share_async
+    # TODO: connect_async, connect_share_async
+
+    def connect_share(self, server, share, user = None) :
+        c_server = server.encode()
+        c_share = share.encode()
+        if user != None :
+            c_user = user.encode()
+        else :
+            c_user = None
+        #end if
+        if smb2.smb2_connect_share(self._smbobj, c_server, c_share, c_user) != 0 :
+            self.raise_error("on connect_share")
+        #end if
+    #end connect_share
+
+    # TODO: disconnect_share_async
+
+    def disconnect_share(self) :
+        smb2.smb2_disconnect_share(self._smbobj) # ignore status?
+    #end disconnect_share
+
+    def share_enum_async_cb(self, cb, cb_data) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            self = w_self()
+            sys.stderr.write("enum_async done, self = %s\n" % repr(self)) # debug
+            assert self != None, "parent Context has gone away"
+            info = {}
+            connect_data = ct.cast(c_command_data, ct.POINTER(SMB2.srvsvc_netshareenumall_rep))[0]
+            info["level"] = connect_data.level
+            info["total_entries"] = connect_data.total_entries
+            info["resume_handle"] = connect_data.resume_handle
+            info["status"] = connect_data.status
+            c_ctr = connect_data.ctr[0]
+            c_array = c_ctr.ctr1.array
+            ctr = {"level" : c_ctr.level, "count" : c_ctr.ctr1.count}
+            array = []
+            for i in range(c_ctr.ctr1.count) :
+                c_elt = c_array[i]
+                elt = \
+                    {
+                        "name" : c_elt.name.decode(),
+                        "type" : c_elt.type,
+                        "comment" : c_elt.comment.decode(),
+                    }
+                array.append(elt)
+            #end for
+            ctr["array"] = array
+            info["ctr"] = ctr
+            cb(self, status, info, cb_data)
+        #end c_cb
+
+    #begin share_enum_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        if smb2.smb2_share_enum_async(self._smbobj, ref_cb, None) != 0 :
+            self.raise_error("on share_enum_async")
+        #end if
+    #end share_enum_async_cb
+
+    async def share_enum_async(self) :
+
+        def share_enum_done(self, status, info, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                awaiting.set_result((status, info))
+            #end if
+        #end share_enum_done
+
+    #begin share_enum_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.share_enum_async_cb(share_enum_done, None)
+        sys.stderr.write("share_enum_async_cb started\n") # debug
+        return \
+            await awaiting
+    #end share_enum_async
 
     def parse_url(self, urlstr) :
         result = smb2.smb2_parse_url(self._smbobj, urlstr.encode())
@@ -1715,6 +1802,40 @@ class Context :
         return \
             URL(result)
     #end parse_url
+
+    def attach_asyncio(self, loop = None) :
+        "attaches this Context object to an asyncio event loop. If none is" \
+        " specified, the default event loop (as returned from asyncio.get_event_loop()" \
+        " is used."
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+
+        def handle(writing) :
+            self = w_self()
+            sys.stderr.write("I/O ready for %s\n" % ("reading", "writing")[writing]) # debug
+            assert self != None, "parent Context has gone away"
+            # Unfortunately asyncio doesn’t seem to notify me about
+            # POLLHUP, POLLRDHUP, POLLERR, POLLNVAL or POLLPRI events
+            mask = (select.POLLIN, select.POLLOUT)[writing]
+            if mask & self.which_events != 0 :
+                self.service(mask)
+            #end if
+            if mask & self.which_events == 0 : # debug
+                sys.stderr.write("not expecting %s\n" % ("reading", "writing")[writing])
+            #end if
+        #end handle
+
+    #begin attach_asyncio
+        assert self.loop == None, "already attached to an event loop"
+        if loop == None :
+            loop = asyncio.get_event_loop()
+        #end if
+        self.loop = loop
+        # TBD following doesn’t quite work--need to defer until libsmb2 is ready for reading/writing
+        loop.add_reader(self.fd, handle, False)
+        loop.add_writer(self.fd, handle, True)
+    #end attach_asyncio
 
 #end Context
 
