@@ -1640,7 +1640,7 @@ class Context :
     def raise_error(self, doing_what) :
         "raises an exception for the last error encountered on this context."
         raise \
-            SMB2Error("%s %s" % (self.error, doing_what))
+            SMB2Error("%s -- %s" % (self.error, doing_what))
     #end raise_error
 
     @property
@@ -1709,7 +1709,7 @@ class Context :
 
     def parse_url(self, urlstr) :
         result = smb2.smb2_parse_url(self._smbobj, urlstr.encode())
-        if result == None :
+        if result == None or ct.cast(result, ct.c_void_p).value == None :
             self.raise_error("parsing url")
         #end if
         return \
