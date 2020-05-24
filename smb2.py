@@ -1597,7 +1597,7 @@ class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
     " use the create method."
 
-    __slots__ = ("_smbobj", "__weakref__", "loop") # to forestall typos
+    __slots__ = ("_smbobj", "__weakref__", "loop", "_save_refs") # to forestall typos
 
     _instances = WeakValueDictionary()
 
@@ -1607,6 +1607,7 @@ class Context :
             self = super().__new__(celf)
             self._smbobj = _smbobj
             self.loop = None
+            self._save_refs = {}
             celf._instances[_smbobj] = self
         else :
             smb2.smb2_destroy_context(self._smbobj)
@@ -1742,6 +1743,7 @@ class Context :
             self = w_self()
             sys.stderr.write("enum_async done, self = %s\n" % repr(self)) # debug
             assert self != None, "parent Context has gone away"
+            self._save_refs.pop(ref_cb_id, None)
             info = {}
             connect_data = ct.cast(c_command_data, ct.POINTER(SMB2.srvsvc_netshareenumall_rep))[0]
             info["level"] = connect_data.level
@@ -1769,6 +1771,8 @@ class Context :
 
     #begin share_enum_async_cb
         ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = id(ref_cb)
+        self._save_refs[ref_cb_id] = ref_cb # ensure it doesn’t disappear until callback is invoked
         if smb2.smb2_share_enum_async(self._smbobj, ref_cb, None) != 0 :
             self.raise_error("on share_enum_async")
         #end if
