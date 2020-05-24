@@ -8,6 +8,8 @@ ctypes."""
 
 import os
 import ctypes as ct
+from weakref import \
+    WeakValueDictionary
 import atexit
 import asyncio
 
@@ -1185,8 +1187,10 @@ smb2.dcerpc_get_pdu_payload.restype = ct.c_void_p
 
 smb2.dcerpc_open_async.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_cb, ct.c_void_p)
 smb2.dcerpc_open_async.restype = ct.c_int
-smb2.dcerpc_bind_async.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_cb, ct.c_void_p)
-smb2.dcerpc_bind_async.restype = ct.c_int
+if hasattr(smb2, "dcerpc_bind_async") :
+    smb2.dcerpc_bind_async.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_cb, ct.c_void_p)
+    smb2.dcerpc_bind_async.restype = ct.c_int
+#end if
 smb2.dcerpc_call_async.argtypes = \
     (SMB2.dcerpc_context_ptr, ct.c_int, SMB2.dcerpc_coder, ct.c_void_p,
     SMB2.dcerpc_coder, ct.c_int, SMB2.dcerpc_cb, ct.c_void_p)
@@ -1227,16 +1231,18 @@ smb2.dcerpc_add_deferred_pointer.restype = None
 
 # from smb2/libsmb2-dcerpc-srvsvc.h:
 
-smb2.srvsvc_netshareenumall_decoder.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
-smb2.srvsvc_netshareenumall_decoder.restype = ct.c_int
-smb2.srvsvc_netshareenumall_encoder.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
-smb2.srvsvc_netshareenumall_encoder.restype = ct.c_int
+if hasattr(smb2, "srvsvc_netshareenumall_decoder") :
+    smb2.srvsvc_netshareenumall_decoder.argtypes = \
+        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    smb2.srvsvc_netshareenumall_decoder.restype = ct.c_int
+    smb2.srvsvc_netshareenumall_encoder.argtypes = \
+        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    smb2.srvsvc_netshareenumall_encoder.restype = ct.c_int
+#end if
 
 # from smb2/libsmb2.h:
 
-smb2.smb2_get_file_id.restype = SMB2.file_id
+smb2.smb2_get_file_id.restype = ct.POINTER(SMB2.file_id)
 smb2.smb2_get_file_id.argtypes = (SMB2.fh_ptr,)
 smb2.smb2_fh_from_file_id.restype = SMB2.fh_ptr
 smb2.smb2_fh_from_file_id.argtypes = (SMB2.context_ptr, ct.POINTER(SMB2.file_id))
@@ -1474,4 +1480,255 @@ smb2.smb2_cmd_flush_async.restype = SMB2.pdu_ptr
 # Higher-level stuff begins here
 #-
 
-TBD
+def nterror_to_str(n) :
+    result = smb2.nterror_to_str(n)
+    if result != None :
+        result = result.decode()
+    #end if
+    return \
+        result
+#end nterror_to_str
+
+def nterror_to_errno(n) :
+    return \
+        smb2.nterror_to_errno(n)
+#end nterror_to_errno
+
+# TODO: dcerpc stuff
+
+class FileID :
+
+    def __init__(self, id) :
+        if not isinstance(id, (bytes, bytearray)) or len(id) != SMB2.FD_SIZE :
+            raise TypeError("id must consist of %d bytes" % SMB2.FD_SIZE)
+        #end if
+        self.id = bytes(id)
+    #end __init__
+
+#end FileID
+
+class FileHandle :
+    "wrapper for an smb2_fh_ptr object. Do not instantiate directly; use the" \
+    " from_file_id() or Context.open() methods."
+
+    __slots__ = ("_smbobj", "_ctx", "__weakref__") # to forestall typos
+
+    def __init__(self, _smbobj, _ctx) :
+        self._smbobj = _smbobj
+        self._ctx = _ctx
+    #end __init__
+
+    @property
+    def file_id(self) :
+        return \
+            FileID(smb2.smb2_get_file_id(self._smbobj)[:SMB2.FD_SIZE])
+    #end file_id
+
+    @classmethod
+    def from_file_id(celf, ctx, id) :
+        if not isinstance(ctx, Context) :
+            raise TypeError("ctx must be a Context")
+        #end if
+        if not isinstance(id, FileID) :
+            raise TypeError("id must be a FileID")
+        #end if
+        return \
+            celf(smb2.smb2_fh_from_file_id(ctx._smbobj, ct.byref(id.id)))
+    #end from_file_id
+
+#end FileHandle
+
+class URL :
+    "wrapper for an smb2_url object. Do not instantiate directly; get from" \
+    " Context.parse_url()."
+
+    __slots__ = ("_smbobj", "_ctx", "__weakref__") # to forestall typos
+
+    def __init__(self, _smbobj) :
+        self._smbobj = _smbobj
+    #end __init__
+
+    def __del__(self) :
+        if self._smbobj != None :
+            smb2.smb2_destroy_url(self._smbobj)
+            self._smbobj = None
+        #end if
+    #end __del__
+
+#end URL
+def def_url_field(name) :
+
+    def field(self) :
+        result = getattr(self._smbobj[0], name)
+        if result != None :
+            result = result.decode()
+        #end if
+        return \
+            result
+    #end field
+
+#begin def_url_field
+    field.__name__ = name
+    field.__doc__ = "the %s field from the URL" % name
+    return \
+        property(field)
+#end def_url_field
+for name in ("domain", "user", "server", "share", "path") :
+    setattr(URL, name, def_url_field(name))
+#end for
+del name, def_url_field
+
+class SMB2Error(Exception) :
+    "just to identify a libsmb2-specific error exception."
+
+    def __init__(self, msg) :
+        self.args = ("libsmb2 error: %s" % msg,)
+    #end __init__
+
+#end SMB2Error
+
+class Context :
+    "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
+    " use the create method."
+
+    __slots__ = ("_smbobj", "__weakref__") # to forestall typos
+
+    _instances = WeakValueDictionary()
+
+    def __new__(celf, _smbobj) :
+        self = celf._instances.get(_smbobj)
+        if self == None :
+            self = super().__new__(celf)
+            self._smbobj = _smbobj
+            celf._instances[_smbobj] = self
+        else :
+            smb2.smb2_destroy_context(self._smbobj)
+              # lose extra reference created by caller
+        #end if
+        return \
+            self
+    #end __new__
+
+    @classmethod
+    def create(celf) :
+        c_result = smb2.smb2_init_context()
+        if c_result == None :
+            raise RuntimeError("failed to create context")
+        #end if
+        return \
+            celf(c_result)
+    #end create
+
+    def __del__(self) :
+        if self._smbobj != None :
+            smb2.smb2_destroy_context(self._smbobj)
+            self._smbobj = None
+        #end if
+    #end __del__
+
+    @property
+    def error(self) :
+        "returns the message text for the last error on this context."
+        result = smb2.smb2_get_error(self._smbobj)
+        if result != None :
+            result = result.decode()
+        #end if
+        return \
+            result
+    #end error
+
+    def raise_error(self, doing_what) :
+        "raises an exception for the last error encountered on this context."
+        raise \
+            SMB2Error("%s %s" % (self.error, doing_what))
+    #end raise_error
+
+    @property
+    def fd(self) :
+        "file descriptor to watch for this connection."
+        return \
+            smb2.smb2_get_fd(self._smbobj)
+    #end fd
+
+    def fileno(self) :
+        "standard Python name for method returning file descriptor to watch for this connection."
+        return \
+            smb2.smb2_get_fd(self._smbobj)
+    #end fileno
+
+    @property
+    def which_events(self) :
+        "mask of events to be passed to poll(2) to watch for on this connection."
+        return \
+            smb2.smb2_which_events(self._smbobj)
+    #end which_events
+
+    def service(self, revents) :
+        "lets libsmb2 service the specified events as returned from a poll(2) call."
+        result = smb2.smb2_service(self._smbobj, revents)
+        if result < 0 :
+            self.raise_error("servicing events")
+        #end if
+    #end service
+
+    def set_security_mode(self, security_mode) :
+        smb2.smb2_set_security_mode(self._smbobj, security_mode)
+    #end set_security_mode
+
+    def set_seal(self, val) :
+        smb2.smb2_set_seal(self._smbobj, val)
+    #end set_seal
+
+    def set_authentication(self, val) :
+        smb2.smb2_set_authentication(self._smbobj, val)
+    #end set_authentication
+
+    def set_user(self, user) :
+        smb2.smb2_set_user(self._smbobj, user.encode())
+    #end set_user
+
+    def set_password(self, password) :
+        smb2.smb2_set_password(self._smbobj, password.encode())
+    #end set_user
+
+    def set_domain(self, domain) :
+        smb2.smb2_set_domain(self._smbobj, domain.encode())
+    #end set_user
+
+    def set_workstation(self, workstation) :
+        smb2.smb2_set_workstation(self._smbobj, workstation.encode())
+    #end set_workstation
+
+    @property
+    def client_guid(self) :
+        return \
+            smb2.smb2_get_client_guid(self._smbobj).decode()
+    #end client_guid
+
+    # TBD connect_async, connect_share_async, disconnect_share_async
+
+    def parse_url(self, urlstr) :
+        result = smb2.smb2_parse_url(self._smbobj, urlstr.encode())
+        if result == None :
+            self.raise_error("parsing url")
+        #end if
+        return \
+            URL(result)
+    #end parse_url
+
+#end Context
+
+# more TBD
+
+#+
+# Overall
+#-
+
+def _atexit() :
+    # disable all __del__ methods at process termination to avoid segfaults
+    for cłass in URL, Context :
+        delattr(cłass, "__del__")
+    #end for
+#end _atexit
+atexit.register(_atexit)
+del _atexit
