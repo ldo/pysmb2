@@ -1741,7 +1741,6 @@ class Context :
 
         def c_cb(c_self, status, c_command_data, _) :
             self = w_self()
-            sys.stderr.write("enum_async done, self = %s\n" % repr(self)) # debug
             assert self != None, "parent Context has gone away"
             self._save_refs.pop(ref_cb_id, None)
             info = {}
@@ -1793,7 +1792,6 @@ class Context :
         ref_awaiting = weak_ref(awaiting)
           # weak ref to avoid circular refs with loop
         self.share_enum_async_cb(share_enum_done, None)
-        sys.stderr.write("share_enum_async_cb started\n") # debug
         return \
             await awaiting
     #end share_enum_async
@@ -1817,16 +1815,13 @@ class Context :
 
         def handle(writing) :
             self = w_self()
-            sys.stderr.write("I/O ready for %s\n" % ("reading", "writing")[writing]) # debug
-            assert self != None, "parent Context has gone away"
-            # Unfortunately asyncio doesn’t seem to notify me about
-            # POLLHUP, POLLRDHUP, POLLERR, POLLNVAL or POLLPRI events
-            mask = (select.POLLIN, select.POLLOUT)[writing]
-            if mask & self.which_events != 0 :
-                self.service(mask)
-            #end if
-            if mask & self.which_events == 0 : # debug
-                sys.stderr.write("not expecting %s\n" % ("reading", "writing")[writing])
+            if self != None :
+                # Unfortunately asyncio doesn’t seem to notify me about
+                # POLLHUP, POLLRDHUP, POLLERR, POLLNVAL or POLLPRI events
+                mask = (select.POLLIN, select.POLLOUT)[writing]
+                if mask & self.which_events != 0 :
+                    self.service(mask)
+                #end if
             #end if
         #end handle
 
@@ -1836,7 +1831,6 @@ class Context :
             loop = asyncio.get_event_loop()
         #end if
         self.loop = loop
-        # TBD following doesn’t quite work--need to defer until libsmb2 is ready for reading/writing
         loop.add_reader(self.fd, handle, False)
         loop.add_writer(self.fd, handle, True)
     #end attach_asyncio
