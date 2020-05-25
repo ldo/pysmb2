@@ -1592,6 +1592,80 @@ class SMB2Error(Exception) :
 
 #end SMB2Error
 
+# TODO clarify if SMB2OSError.raise_if should be used everywhere instead of Context.raise_error.
+
+class SMB2OSError(Exception) :
+
+    def __init__(self, status, msg) :
+        errno = - status
+        self.args = ("libsmb2 OS error %d -- %s: %s" % (errno, os.strerror(errno), msg),)
+    #end __init__
+
+    @classmethod
+    def raise_if(celf, status, msg) :
+        if status != 0 :
+            raise celf(status, msg)
+        #end if
+    #end raise_if
+
+#end SMB2OSError
+
+class Dir :
+    "a wrapper for an smb2dir pointer. Do not instantiate directly;" \
+    " get from Context.opendir."
+
+    __slots__ = ("_smbobj", "__weakref__", "_parent") # to forestall typos
+
+    _instances = WeakValueDictionary()
+
+    def __new__(celf, _smbobj, _parent) :
+        self = celf._instances.get(_smbobj)
+        if self == None :
+            self = super().__new__(celf)
+            self._smbobj = _smbobj
+            self._parent = _parent
+            celf._instances[_smbobj] = self
+        #end if
+        return \
+            self
+    #end __new__
+
+    def close(self) :
+        if self._smbobj != None :
+            smb2.smb2_closedir(self._parent._smbobj, self._smbobj)
+            self._smbobj = None
+        #end if
+    #end close
+    __del__ = close
+
+    def read(self) :
+        c_dirent = smb2.smb2_readdir(self._parent._smbobj, self._smbobj)
+        if c_dirent != None and ct.cast(c_dirent, ct.c_void_p).value != None :
+            dirent = {"name" : c_dirent[0].name.decode()}
+            c_st = c_dirent[0].st
+            dirent["st"] = dict((f[0], getattr(c_st, f[0])) for f in SMB2.stat_64._fields_)
+        else :
+            dirent = None
+        #end if
+        return \
+            dirent
+    #end read
+
+    def rewind(self) :
+        smb2.smb2_rewinddir(self._parent._smbobj, self._smbobj)
+    #end rewind
+
+    def tell(self) :
+        return \
+            smb2.smb2_telldir(self._parent._smbobj, self._smbobj)
+    #end tell
+
+    def seek(self, loc) :
+        smb2.smb2_seekdir(self._parent._smbobj, self._smbobj, loc)
+    #end seek
+
+#end Dir
+
 class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
     " use the create method."
@@ -1741,7 +1815,58 @@ class Context :
             smb2.smb2_get_client_guid(self._smbobj).decode()
     #end client_guid
 
-    # TODO: connect_async, connect_share_async
+    # TODO: connect_async
+
+    def connect_share_async_cb(self, server, share, user, cb, cb_data) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            self._done_cb(ref_cb_id)
+            cb(self, status, None, cb_data)
+        #end c_cb
+
+    #begin connect_share_async_cb
+        c_server = server.encode()
+        c_share = share.encode()
+        if user != None :
+            c_user = user.encode()
+        else :
+            c_user = None
+        #end if
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_connect_share_async(self._smbobj, c_server, c_share, c_user, ref_cb, None),
+            "on connect_share_async"
+          )
+        ref_cb_id = self._start_pending_cb(ref_cb)
+    #end connect_share_async_cb
+
+    async def connect_share_async(self, server, share, user) :
+
+        def connect_share_done(self, status, _1, _2) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on connect_share_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end connect_share_done
+
+    #begin connect_share_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.connect_share_async_cb(server, share, user, connect_share_done, None)
+        await awaiting
+    #end connect_share_async
 
     def connect_share(self, server, share, user = None) :
         c_server = server.encode()
@@ -1756,11 +1881,114 @@ class Context :
         #end if
     #end connect_share
 
-    # TODO: disconnect_share_async
+    def disconnect_share_async_cb(self, cb, cb_data) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            self._done_cb(ref_cb_id)
+            cb(self, status, None, cb_data)
+        #end c_cb
+
+    #begin disconnect_share_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._start_pending_cb(ref_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_disconnect_share_async(self._smbobj, ref_cb, None),
+            "on disconnect_share_async"
+          )
+    #end disconnect_share_async_cb
+
+    async def disconnect_share_async(self) :
+
+        def discconnect_share_done(self, status, _1, _2) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on disconnect_share_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end discconnect_share_done
+
+    #begin disconnect_share_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.discconnect_share_async_cb(server, disconnect_share_done, None)
+        await awaiting
+    #end disconnect_share_async
 
     def disconnect_share(self) :
         smb2.smb2_disconnect_share(self._smbobj) # ignore status?
     #end disconnect_share
+
+    def opendir_async_cb(self, path, cb, cb_data) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            self._done_cb(ref_cb_id)
+            if status == 0 :
+                dir = Dir(c_command_data, self)
+            else :
+                dir = None
+            #end if
+            cb(self, status, dir, cb_data)
+        #end c_cb
+
+    #begin opendir_async_cb
+        c_path = path.encode()
+        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._start_pending_cb(ref_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_opendir_async(self._smbobj, c_path, ref_cb, None),
+            "on opendir_async"
+          )
+    #end opendir_async_cb
+
+    async def opendir_async(self, path) :
+
+        def opendir_done(self, status, dir, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on opendir_async done"))
+                else :
+                    awaiting.set_result(dir)
+                #end if
+            #end if
+        #end opendir_done
+
+    #begin opendir_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.opendir_async_cb(path, opendir_done, None)
+        return \
+            await awaiting
+    #end opendir_async
+
+    def opendir(self, path) :
+        c_path = path.encode()
+        c_result = smb2.smb2_opendir(self._smbobj, c_path)
+        if c_result == None :
+            self.raise_error("on opendir")
+        #end if
+        return \
+            Dir(self, c_result)
+    #end opendir
 
     def share_enum_async_cb(self, cb, cb_data) :
 
@@ -1853,7 +2081,7 @@ class Context :
 
 def _atexit() :
     # disable all __del__ methods at process termination to avoid segfaults
-    for cłass in URL, Context :
+    for cłass in URL, Dir, Context :
         delattr(cłass, "__del__")
     #end for
 #end _atexit
