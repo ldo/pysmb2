@@ -1608,9 +1608,6 @@ class Context :
             self.loop = None
             self._pending_cb = {}
             celf._instances[_smbobj] = self
-        else :
-            smb2.smb2_destroy_context(self._smbobj)
-              # lose extra reference created by caller
         #end if
         return \
             self
