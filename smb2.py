@@ -6,7 +6,6 @@ ctypes."""
 # Licensed under the GNU Lesser General Public License v2.1 or later.
 #-
 
-import sys # debug
 import ctypes as ct
 from weakref import \
     ref as weak_ref, \
@@ -1597,7 +1596,7 @@ class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
     " use the create method."
 
-    __slots__ = ("_smbobj", "__weakref__", "loop", "_save_refs") # to forestall typos
+    __slots__ = ("_smbobj", "__weakref__", "loop", "_pending_cb") # to forestall typos
 
     _instances = WeakValueDictionary()
 
@@ -1607,7 +1606,7 @@ class Context :
             self = super().__new__(celf)
             self._smbobj = _smbobj
             self.loop = None
-            self._save_refs = {}
+            self._pending_cb = {}
             celf._instances[_smbobj] = self
         else :
             smb2.smb2_destroy_context(self._smbobj)
@@ -1679,6 +1678,38 @@ class Context :
         #end if
     #end service
 
+    @staticmethod
+    def _handle_poll(w_self, writing) :
+        self = w_self()
+        assert self != None, "parent Context has gone away"
+        mask = (select.POLLIN, select.POLLOUT)[writing]
+        self.service(mask)
+    #end _handle_poll
+
+    def _start_pending_cb(self, cb) :
+        assert self.loop != None, "no event loop to attach coroutines to"
+        if len(self._pending_cb) == 0 :
+            # ignore self.which_events, always watch for both read and write events
+            # Unfortunately asyncio doesn’t seem to notify me about
+            # POLLHUP, POLLRDHUP, POLLERR, POLLNVAL or POLLPRI events
+            w_self = weak_ref(self)
+            self.loop.add_reader(self.fd, self._handle_poll, w_self, False)
+            self.loop.add_writer(self.fd, self._handle_poll, w_self, True)
+        #end if
+        key = id(cb)
+        self._pending_cb[key] = cb
+        return \
+            key
+    #end _start_pending_cb
+
+    def _done_cb(self, cb_id) :
+        self._pending_cb.pop(cb_id, None)
+        if len(self._pending_cb) == 0 :
+            self.loop.remove_reader(self.fd)
+            self.loop.remove_writer(self.fd)
+        #end if
+    #end _done_cb
+
     def set_security_mode(self, security_mode) :
         smb2.smb2_set_security_mode(self._smbobj, security_mode)
     #end set_security_mode
@@ -1742,7 +1773,7 @@ class Context :
         def c_cb(c_self, status, c_command_data, _) :
             self = w_self()
             assert self != None, "parent Context has gone away"
-            self._save_refs.pop(ref_cb_id, None)
+            self._done_cb(ref_cb_id)
             info = {}
             connect_data = ct.cast(c_command_data, ct.POINTER(SMB2.srvsvc_netshareenumall_rep))[0]
             info["level"] = connect_data.level
@@ -1770,8 +1801,7 @@ class Context :
 
     #begin share_enum_async_cb
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = id(ref_cb)
-        self._save_refs[ref_cb_id] = ref_cb # ensure it doesn’t disappear until callback is invoked
+        ref_cb_id = self._start_pending_cb(ref_cb)
         if smb2.smb2_share_enum_async(self._smbobj, ref_cb, None) != 0 :
             self.raise_error("on share_enum_async")
         #end if
@@ -1809,30 +1839,11 @@ class Context :
         "attaches this Context object to an asyncio event loop. If none is" \
         " specified, the default event loop (as returned from asyncio.get_event_loop()" \
         " is used."
-
-        w_self = weak_ref(self)
-          # to avoid a reference cycle
-
-        def handle(writing) :
-            self = w_self()
-            if self != None :
-                # Unfortunately asyncio doesn’t seem to notify me about
-                # POLLHUP, POLLRDHUP, POLLERR, POLLNVAL or POLLPRI events
-                mask = (select.POLLIN, select.POLLOUT)[writing]
-                if mask & self.which_events != 0 :
-                    self.service(mask)
-                #end if
-            #end if
-        #end handle
-
-    #begin attach_asyncio
         assert self.loop == None, "already attached to an event loop"
         if loop == None :
             loop = asyncio.get_event_loop()
         #end if
         self.loop = loop
-        loop.add_reader(self.fd, handle, False)
-        loop.add_writer(self.fd, handle, True)
     #end attach_asyncio
 
 #end Context
