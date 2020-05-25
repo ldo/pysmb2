@@ -29,6 +29,7 @@ class SMB2 :
     # variable, and pass the value of the variable instead.
 
     # from smb2/smb2-errors.h:
+
     STATUS_SEVERITY_MASK = 0xc0000000
     STATUS_SEVERITY_SUCCESS = 0x00000000
     STATUS_SEVERITY_INFO = 0x40000000
@@ -104,6 +105,7 @@ class SMB2 :
     STATUS_NOT_A_REPARSE_POINT = 0xC0000275
 
     # from smb2/smb2.h:
+
     class c_timeval_t(ct.Structure) :
         _fields_ = \
             [
@@ -996,7 +998,7 @@ class SMB2 :
 
     ENCRYPTION_AES128_CCM = 0x0001
 
-# from smb2/libsmb2.h:
+    # from smb2/libsmb2.h:
 
     class iovec(ct.Structure) :
         _fields_ = \
@@ -1133,6 +1135,7 @@ class SMB2 :
     #end srvsvc_netshareenumall_rep
 
     # from smb2/libsmb2-dcerpc.h:
+
     dcerpc_context_ptr = ct.c_void_p
     dcerpc_pdu_ptr = ct.c_void_p
 
@@ -1173,7 +1176,8 @@ class SMB2 :
         ]
     #end dcerpc_transfer_syntax
 
-# from smb2/libsmb2-dcerpc-srvsvc.h:
+    # from smb2/libsmb2-dcerpc-srvsvc.h:
+
     NETSHAREENUMALL = 15
 
 #end SMB2
