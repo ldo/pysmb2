@@ -1564,6 +1564,13 @@ class URL :
         #end if
     #end __del__
 
+    # Read-only attributes (defined below): all strings or None
+    # domain
+    # user
+    # server
+    # share
+    # path
+
 #end URL
 def def_url_field(name) :
 
