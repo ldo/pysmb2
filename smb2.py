@@ -1794,30 +1794,44 @@ class Context :
 
     def set_security_mode(self, security_mode) :
         smb2.smb2_set_security_mode(self._smbobj, security_mode)
+        return \
+            self
     #end set_security_mode
 
     def set_seal(self, val) :
         smb2.smb2_set_seal(self._smbobj, val)
+        return \
+            self
     #end set_seal
 
     def set_authentication(self, val) :
         smb2.smb2_set_authentication(self._smbobj, val)
+        return \
+            self
     #end set_authentication
 
     def set_user(self, user) :
         smb2.smb2_set_user(self._smbobj, user.encode())
+        return \
+            self
     #end set_user
 
     def set_password(self, password) :
         smb2.smb2_set_password(self._smbobj, password.encode())
+        return \
+            self
     #end set_user
 
     def set_domain(self, domain) :
         smb2.smb2_set_domain(self._smbobj, domain.encode())
+        return \
+            self
     #end set_user
 
     def set_workstation(self, workstation) :
         smb2.smb2_set_workstation(self._smbobj, workstation.encode())
+        return \
+            self
     #end set_workstation
 
     @property
@@ -2080,6 +2094,8 @@ class Context :
             loop = asyncio.get_event_loop()
         #end if
         self.loop = loop
+        return \
+            self
     #end attach_asyncio
 
 #end Context
