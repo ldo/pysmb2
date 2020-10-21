@@ -6,6 +6,7 @@ ctypes."""
 # Licensed under the GNU Lesser General Public License v2.1 or later.
 #-
 
+import os
 import ctypes as ct
 from weakref import \
     ref as weak_ref, \
@@ -1603,8 +1604,6 @@ class SMB2Error(Exception) :
 
 #end SMB2Error
 
-# TODO clarify if SMB2OSError.raise_if should be used everywhere instead of Context.raise_error.
-
 class SMB2OSError(Exception) :
 
     def __init__(self, status, msg) :
@@ -1840,7 +1839,7 @@ class Context :
             smb2.smb2_get_client_guid(self._smbobj).decode()
     #end client_guid
 
-    # TODO: connect_async
+    # TODO: connect_async -- may need to do this to allocate valid fd if I want to use connect_share_async?
 
     def connect_share_async_cb(self, server, share, user, cb, cb_data) :
 
@@ -1851,7 +1850,7 @@ class Context :
             self = w_self()
             assert self != None, "parent Context has gone away"
             self._done_cb(ref_cb_id)
-            cb(self, status, None, cb_data)
+            cb(self, status, cb_data)
         #end c_cb
 
     #begin connect_share_async_cb
@@ -1863,17 +1862,17 @@ class Context :
             c_user = None
         #end if
         ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_connect_share_async(self._smbobj, c_server, c_share, c_user, ref_cb, None),
             "on connect_share_async"
           )
-        ref_cb_id = self._start_pending_cb(ref_cb)
     #end connect_share_async_cb
 
-    async def connect_share_async(self, server, share, user) :
+    async def connect_share_async(self, server, share, user = None) :
 
-        def connect_share_done(self, status, _1, _2) :
+        def connect_share_done(self, status, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -1901,9 +1900,11 @@ class Context :
         else :
             c_user = None
         #end if
-        if smb2.smb2_connect_share(self._smbobj, c_server, c_share, c_user) != 0 :
-            self.raise_error("on connect_share")
-        #end if
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_connect_share(self._smbobj, c_server, c_share, c_user),
+            "on connect_share"
+          )
     #end connect_share
 
     def disconnect_share_async_cb(self, cb, cb_data) :
@@ -1915,7 +1916,7 @@ class Context :
             self = w_self()
             assert self != None, "parent Context has gone away"
             self._done_cb(ref_cb_id)
-            cb(self, status, None, cb_data)
+            cb(self, status, cb_data)
         #end c_cb
 
     #begin disconnect_share_async_cb
@@ -1930,7 +1931,7 @@ class Context :
 
     async def disconnect_share_async(self) :
 
-        def discconnect_share_done(self, status, _1, _2) :
+        def disconnect_share_done(self, status, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -1939,19 +1940,19 @@ class Context :
                     awaiting.set_result(None)
                 #end if
             #end if
-        #end discconnect_share_done
+        #end disconnect_share_done
 
     #begin disconnect_share_async
         assert self.loop != None, "no event loop to attach coroutines to"
         awaiting = self.loop.create_future()
         ref_awaiting = weak_ref(awaiting)
           # weak ref to avoid circular refs with loop
-        self.discconnect_share_async_cb(server, disconnect_share_done, None)
+        self.disconnect_share_async_cb(disconnect_share_done, None)
         await awaiting
     #end disconnect_share_async
 
     def disconnect_share(self) :
-        smb2.smb2_disconnect_share(self._smbobj) # ignore status?
+        SMB2OSError.raise_if(smb2.smb2_disconnect_share(self._smbobj), "on disconnect_share")
     #end disconnect_share
 
     def opendir_async_cb(self, path, cb, cb_data) :
@@ -2052,9 +2053,11 @@ class Context :
     #begin share_enum_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         ref_cb_id = self._start_pending_cb(ref_cb)
-        if smb2.smb2_share_enum_async(self._smbobj, ref_cb, None) != 0 :
-            self.raise_error("on share_enum_async")
-        #end if
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_share_enum_async(self._smbobj, ref_cb, None),
+            "on share_enum_async"
+          )
     #end share_enum_async_cb
 
     async def share_enum_async(self) :
@@ -2062,7 +2065,11 @@ class Context :
         def share_enum_done(self, status, info, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
-                awaiting.set_result((status, info))
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on share_enum_async done"))
+                else :
+                    awaiting.set_result(info)
+                #end if
             #end if
         #end share_enum_done
 
