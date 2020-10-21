@@ -11,6 +11,7 @@ import ctypes as ct
 from weakref import \
     ref as weak_ref, \
     WeakValueDictionary
+import array
 import atexit
 import select
 import asyncio
@@ -1341,7 +1342,7 @@ smb2.smb2_open_async.argtypes = \
     (SMB2.context_ptr, ct.c_char_p, ct.c_int, SMB2.command_cb, ct.c_void_p)
 smb2.smb2_open_async.restype = ct.c_int
 smb2.smb2_open.argtypes = (SMB2.context_ptr, ct.c_char_p, ct.c_int)
-smb2.smb2_open.restype = SMB2.fh_ptr
+smb2.smb2_open.restype = ct.c_void_p
 smb2.smb2_close_async.argtypes = (SMB2.context_ptr, SMB2.fh_ptr, SMB2.command_cb, ct.c_void_p)
 smb2.smb2_close_async.restype = ct.c_int
 smb2.smb2_close.argtypes = (SMB2.context_ptr, SMB2.fh_ptr)
@@ -1355,30 +1356,30 @@ smb2.smb2_get_max_read_size.restype = ct.c_uint32
 smb2.smb2_get_max_write_size.argtypes = (SMB2.context_ptr,)
 smb2.smb2_get_max_write_size.restype = ct.c_uint32
 smb2.smb2_pread_async.argtypes = \
-    (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32, ct.c_uint64,
+    (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32, ct.c_uint64,
     SMB2.command_cb, ct.c_void_p)
 smb2.smb2_pread_async.restype = ct.c_int
 smb2.smb2_pread.argtypes = \
-    (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32, ct.c_uint64)
+    (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32, ct.c_uint64)
 smb2.smb2_pread.restype = ct.c_int
 smb2.smb2_pwrite_async.argtypes = \
-    (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32, ct.c_uint64,
+    (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32, ct.c_uint64,
     SMB2.command_cb, ct.c_void_p)
 smb2.smb2_pwrite_async.restype = ct.c_int
 smb2.smb2_pwrite.argtypes = \
-    (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32, ct.c_uint64)
+    (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32, ct.c_uint64)
 smb2.smb2_pwrite.restype = ct.c_int
 smb2.smb2_read_async.argtypes = \
-    (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32,
+    (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32,
     SMB2.command_cb, ct.c_void_p)
 smb2.smb2_read_async.restype = ct.c_int
 smb2.smb2_read.argtypes = (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32)
 smb2.smb2_read.restype = ct.c_int
 smb2.smb2_write_async.argtypes = \
-    (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32,
+    (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32,
     SMB2.command_cb, ct.c_void_p)
 smb2.smb2_write_async.restype = ct.c_int
-smb2.smb2_write.argtypes = (SMB2.context_ptr, SMB2.fh_ptr, ct.POINTER(ct.c_uint8), ct.c_uint32)
+smb2.smb2_write.argtypes = (SMB2.context_ptr, SMB2.fh_ptr, ct.c_void_p, ct.c_uint32)
 smb2.smb2_write.restype = ct.c_int
 smb2.smb2_lseek.argtypes = \
     (SMB2.context_ptr, SMB2.fh_ptr, ct.c_int64, ct.c_int, ct.POINTER(ct.c_uint64))
@@ -1543,8 +1544,381 @@ class FileHandle :
             raise TypeError("id must be a FileID")
         #end if
         return \
-            celf(smb2.smb2_fh_from_file_id(ctx._smbobj, ct.byref(id.id)))
+            celf(smb2.smb2_fh_from_file_id(ctx._smbobj, ct.byref(id.id)), ctx)
     #end from_file_id
+
+    def close_async_cb(self, cb, cb_data = None) :
+
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+
+        def c_cb(c_ctx, status, c_command_data, _) :
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            ctx._done_cb(ref_cb_id)
+            cb(ctx, status, cb_data)
+        #end c_cb
+
+    #begin close_async_cb
+        if self._smbobj != None :
+            ref_cb = SMB2.command_cb(c_cb)
+            ref_cb_id = self._ctx._start_pending_cb(ref_cb)
+            smbobj = self._smbobj
+            self._smbobj = None
+            SMB2OSError.raise_if \
+              (
+                smb2.smb2_close_async(self._ctx._smbobj, smbobj, ref_cb, None),
+                "on close_async"
+              )
+        else :
+            cb(self._ctx, 0, cb_data)
+        #end if
+    #end close_async_cb
+
+    async def close_async(self) :
+
+        def close_done(ctx, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on close_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end close_done
+
+    #begin close_async
+        if self._smbobj != None :
+            assert self._ctx.loop != None, "no event loop to attach coroutines to"
+            awaiting = self._ctx.loop.create_future()
+            ref_awaiting = weak_ref(awaiting)
+              # weak ref to avoid circular refs with loop
+            self.close_async_cb(close_done, None)
+            result = await awaiting
+        else :
+            result = None
+        #end if
+        return \
+            result
+    #end close_async
+
+    def close(self) :
+        if self._smbobj != None :
+            status = smb2.smb2_close(self._ctx._smbobj, self._smbobj)
+            self._smbobj = None
+        #end if
+    #enc close
+
+    def fsync_async_cb(self, cb, cb_data = None) :
+
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+
+        def c_cb(c_ctx, status, c_command_data, _) :
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            ctx._done_cb(ref_cb_id)
+            cb(ctx, status, cb_data)
+        #end c_cb
+
+    #begin fsync_async_db
+        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._ctx._start_pending_cb(ref_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_fsync_async(self._ctx._smbobj, self._smbobj, ref_cb, None),
+            "on fsync_async"
+          )
+    #end fsync_async_cb
+
+    async def fsync_async(self) :
+
+        def fsync_done(ctx, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on fsync_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end fsync_done
+
+    #begin fsync_async
+        assert self._smbobj != None, "file already closed"
+        assert self._ctx.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.fsync_async_cb(fsync_done, None)
+        return \
+            await awaiting
+    #end fsync_async
+
+    def fsync(self) :
+        assert self._smbobj != None, "file already closed"
+        status = smb2.smb2_fsync(self._ctx._smbobj, self._smbobj)
+        if status != 0 :
+            raise SMB2OSError(status, "on fsync")
+        #end if
+    #end fsync
+
+    def read_async_cb(self, *, buf = None, nrbytes = None, offset = None, cb, cb_data = None) :
+
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            ctx._done_cb(ref_cb_id)
+            if buf_is_mine :
+                # only pass used part of buf
+                if status >= 0 :
+                    used_buf = buf[:status]
+                else :
+                    used_buf = None
+                #end if
+            else :
+                used_buf = buf
+            #end if
+            cb(ctx, status, used_buf, cb_data)
+        #end c_cb
+
+    #begin read_async_cb
+        assert self._smbobj != None, "file already closed"
+        if buf != None :
+            if nrbytes == None :
+                if hasattr(buf, "__len__") :
+                    nrbytes = len(buf)
+                else :
+                    raise TypeError \
+                      (
+                        "omitted nrbytes cannot be deduced from buf type “%s”" % type(buf).__name__
+                      )
+                #end if
+            #end if
+            # “bytes” type not allowed, since it is supposed to be immutable
+            if isinstance(buf, bytearray) :
+                bufptr = ct.addressof((ct.c_uint8 * nrbytes).from_buffer(buf))
+            elif isinstance(buf, array.array) and buf.typecode == "B" :
+                bufptr = buf.buffer_info()[0]
+            elif isinstance(buf, ct.c_void_p) :
+                bufptr = buf
+            else :
+                raise TypeError("buf is not bytes, bytearray or array.array of bytes")
+            #end if
+            buf_is_mine = False
+        else :
+            if nrbytes == None :
+                raise TypeError("cannot omit both buf and nrbytes args")
+            #end if
+            buf = bytearray(nrbytes)
+            bufptr = ct.addressof((ct.c_char * nrbytes).from_buffer(buf))
+            buf_is_mine = True
+        #end if
+        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._ctx._start_pending_cb(ref_cb)
+        if offset != None :
+            status = smb2.smb2_pread_async(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, offset, ref_cb, None)
+        else :
+            status = smb2.smb2_read_async(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, ref_cb, None)
+        #end if
+        SMB2OSError.raise_if(status, "on read_async")
+    #end read_async_cb
+
+    async def read_async(self, *, buf = None, nrbytes = None, offset = None) :
+
+        def read_done(ctx, status, buf, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on read_async done"))
+                else :
+                    awaiting.set_result(buf)
+                #end if
+            #end if
+        #end read_done
+
+    #begin read_async
+        assert self._smbobj != None, "file already closed"
+        assert self._ctx.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.read_async_cb \
+          (
+            buf = buf,
+            nrbytes = nrbytes,
+            offset = offset,
+            cb = read_done
+          )
+        return \
+            await awaiting
+    #end read_async
+
+    def read(self, *, buf = None, nrbytes = None, offset = None) :
+        assert self._smbobj != None, "file already closed"
+        if buf != None :
+            if nrbytes == None :
+                if hasattr(buf, "__len__") :
+                    nrbytes = len(buf)
+                else :
+                    raise TypeError \
+                      (
+                        "omitted nrbytes cannot be deduced from buf type “%s”" % type(buf).__name__
+                      )
+                #end if
+            #end if
+            # “bytes” type not allowed, since it is supposed to be immutable
+            if isinstance(buf, bytearray) :
+                bufptr = ct.addressof((ct.c_ubyte * nrbytes).from_buffer(buf))
+            elif isinstance(buf, array.array) and buf.typecode == "B" :
+                bufptr = buf.buffer_info()[0]
+            elif isinstance(buf, ct.c_void_p) :
+                bufptr = buf
+            else :
+                raise TypeError("buf is not bytes, bytearray or array.array of bytes")
+            #end if
+            buf_is_mine = False
+        else :
+            if nrbytes == None :
+                raise TypeError("cannot omit both buf and nrbytes args")
+            #end if
+            buf = bytearray(nrbytes)
+            bufptr = ct.addressof((ct.c_ubyte * nrbytes).from_buffer(buf))
+            buf_is_mine = True
+        #end if
+        if offset != None :
+            status = smb2.smb2_pread(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, offset)
+        else :
+            status = smb2.smb2_read(self._ctx._smbobj, self._smbobj, bufptr, nrbytes)
+        #end if
+        if buf_is_mine :
+            if status >= 0 :
+                buf = buf[:status]
+            else :
+                buf = None
+            #end if
+        #end if
+        return \
+            (status, buf)
+    #end read
+
+    def write_async_cb(self, *, buf, nrbytes = None, offset = None, cb, cb_data = None) :
+
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            ctx._done_cb(ref_cb_id)
+            cb(ctx, status, cb_data)
+        #end c_cb
+
+    #begin write_async_cb
+        assert self._smbobj != None, "file already closed"
+        if nrbytes == None :
+            if hasattr(buf, "__len__") :
+                nrbytes = len(buf)
+            else :
+                raise TypeError \
+                  (
+                    "omitted nrbytes cannot be deduced from buf type “%s”" % type(buf).__name__
+                  )
+            #end if
+        #end if
+        if isinstance(buf, bytes) :
+            bufptr = ct.cast(buf, ct.c_void_p).value
+        elif isinstance(buf, bytearray) :
+            bufptr = ct.addressof((ct.c_char * len(buf)).from_buffer(buf))
+        elif isinstance(buf, array.array) and buf.typecode == "B" :
+            bufptr = buf.buffer_info()[0]
+        elif isinstance(buf, ct.c_void_p) :
+            bufptr = buf
+        else :
+            raise TypeError("buf is not bytes, bytearray or array.array of bytes")
+        #end if
+        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._ctx._start_pending_cb(ref_cb)
+        if offset != None :
+            status = smb2.smb2_pwrite_async(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, offset, ref_cb, None)
+        else:
+            status = smb2.smb2_write_async(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, ref_cb, None)
+        #end if
+        SMB2OSError.raise_if(status, "on write_async")
+    #end write_async_cb
+
+    async def write_async(self, *, buf, nrbytes = None, offset = None) :
+
+        def write_done(ctx, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on write_async done"))
+                else :
+                    awaiting.set_result(status)
+                #end if
+            #end if
+        #end write_done
+
+    #begin write_async
+        assert self._smbobj != None, "file already closed"
+        assert self._ctx.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.write_async_cb(buf = buf, nrbytes = nrbytes, offset = offset, cb = write_done)
+        return \
+            await awaiting
+    #end write_async
+
+    def write(self, *, buf, nrbytes = None, offset = None) :
+        assert self._smbobj != None, "file already closed"
+        if nrbytes == None :
+            if hasattr(buf, "__len__") :
+                nrbytes = len(buf)
+            else :
+                raise TypeError \
+                  (
+                    "omitted nrbytes cannot be deduced from buf type “%s”" % type(buf).__name__
+                  )
+            #end if
+        #end if
+        if isinstance(buf, bytes) :
+            bufptr = ct.cast(buf, ct.c_void_p).value
+        elif isinstance(buf, bytearray) :
+            bufptr = ct.addressof((ct.c_char * len(buf)).from_buffer(buf))
+        elif isinstance(buf, array.array) and buf.typecode == "B" :
+            bufptr = buf.buffer_info()[0]
+        elif isinstance(buf, ct.c_void_p) :
+            bufptr = buf
+        else :
+            raise TypeError("buf is not bytes, bytearray or array.array of bytes")
+        #end if
+        if offset != None :
+            status = smb2.smb2_pwrite(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, offset)
+        else :
+            status = smb2.smb2_write(self._ctx._smbobj, self._smbobj, bufptr, nrbytes)
+        #end if
+        return \
+            status
+    #end write
+
+    def lseek(self, offset, whence) :
+        assert self._smbobj != None, "file already closed"
+        curoffset = ct.c_uint64()
+        status = smb2.smb2_lseek(self._ctx._smbobj, self._smbobj, offset, whence, ct.byref(curoffset))
+        if status != 0 :
+            raise TBD
+        #end if
+        return \
+            curoffset.value
+    #end lseek
+
+    # TODO: fstat, ftruncate
 
 #end FileHandle
 
@@ -2091,6 +2465,79 @@ class Context :
         return \
             URL(result)
     #end parse_url
+
+    def open_async_cb(self, path, flags, cb, cb_data) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+
+        def c_cb(c_self, status, c_command_data, _) :
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            self._done_cb(ref_cb_id)
+            if status == 0 :
+                the_file = FileHandle(ct.cast(c_command_data, SMB2.fh_ptr), self)
+            else :
+                the_file = None
+            #end if
+            cb(self, status, the_file, cb_data)
+        #end c_cb
+
+    #begin open_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_id = self._start_pending_cb(ref_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_open_async(self._smbobj, path.encode(), flags, ref_cb, None),
+            "on open_async"
+          )
+    #end open_async_cb
+
+    async def open_async(self, path, flags) :
+
+        def open_done(self, status, fh, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on open_async done"))
+                else :
+                    awaiting.set_result(fh)
+                #end if
+            #end if
+        #end open_done
+
+    #begin open_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.open_async_cb(path, flags, open_done, None)
+        return \
+            await awaiting
+    #end open_async
+
+    def open(self, path, flags) :
+        result = smb2.smb2_open(self._smbobj, path.encode(), flags)
+        if result == None :
+            self.raise_error("on open")
+        #end if
+        return \
+            FileHandle(ct.cast(SMB2.fh_ptr, result), self)
+    #end open
+
+    @property
+    def max_read_size(self) :
+        return \
+            smb2.smb2_get_max_read_size(self._smbobj)
+    #end max_read_size
+
+    @property
+    def max_write_size(self) :
+        return \
+            smb2.smb2_get_max_write_size(self._smbobj)
+    #end max_write_size
+
+    # TODO: unlink, rmdir, mkdir, statvfs, stat, rename, truncate, readlink, echo
 
     def attach_asyncio(self, loop = None) :
         "attaches this Context object to an asyncio event loop. If none is" \
