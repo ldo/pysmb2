@@ -1239,12 +1239,6 @@ smb2.dcerpc_encode_32.restype = ct.c_int
 smb2.dcerpc_encode_3264.argtypes = \
     (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_uint64)
 smb2.dcerpc_encode_3264.restype = ct.c_int
-smb2.dcerpc_process_deferred_pointers.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int)
-smb2.dcerpc_process_deferred_pointers.restype = ct.c_int
-smb2.dcerpc_add_deferred_pointer.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.dcerpc_coder, ct.c_void_p)
-smb2.dcerpc_add_deferred_pointer.restype = None
 
 # from smb2/libsmb2-dcerpc-srvsvc.h:
 
