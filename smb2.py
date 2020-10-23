@@ -1063,6 +1063,11 @@ class SMB2 :
 
     t_socket = ct.c_int
 
+    ADD_FD = 0
+    DEL_FD = 1
+    change_fd_cb = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_int, ct.c_int)
+    change_events_cb = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_int, ct.c_int)
+
     class url(ct.Structure) :
         _fields_ = \
             [
@@ -1265,6 +1270,8 @@ smb2.smb2_get_fd.restype = SMB2.t_socket
 smb2.smb2_get_fd.argtypes = (SMB2.context_ptr,)
 smb2.smb2_which_events.restype = ct.c_int
 smb2.smb2_which_events.argtypes = (SMB2.context_ptr,)
+smb2.smb2_fd_event_callbacks.restype = None
+smb2.smb2_fd_event_callbacks.argtypes = (SMB2.context_ptr, SMB2.change_fd_cb, SMB2.change_events_cb)
 smb2.smb2_service.restype = ct.c_int
 smb2.smb2_service.argtypes = (SMB2.context_ptr, ct.c_int)
 smb2.smb2_set_security_mode.restype = None
@@ -1545,18 +1552,19 @@ class FileHandle :
 
         w_ctx = weak_ref(self._ctx)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_ctx, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            ctx._done_cb(ref_cb_id)
             cb(ctx, status, cb_data)
         #end c_cb
 
     #begin close_async_cb
         if self._smbobj != None :
             ref_cb = SMB2.command_cb(c_cb)
-            ref_cb_id = self._ctx._start_pending_cb(ref_cb)
             smbobj = self._smbobj
             self._smbobj = None
             SMB2OSError.raise_if \
@@ -1608,17 +1616,18 @@ class FileHandle :
 
         w_ctx = weak_ref(self._ctx)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_ctx, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            ctx._done_cb(ref_cb_id)
             cb(ctx, status, cb_data)
         #end c_cb
 
     #begin fsync_async_db
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._ctx._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_fsync_async(self._ctx._smbobj, self._smbobj, ref_cb, None),
@@ -1662,11 +1671,13 @@ class FileHandle :
 
         w_ctx = weak_ref(self._ctx)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            ctx._done_cb(ref_cb_id)
             if buf_is_mine :
                 # only pass used part of buf
                 if status >= 0 :
@@ -1713,7 +1724,6 @@ class FileHandle :
             buf_is_mine = True
         #end if
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._ctx._start_pending_cb(ref_cb)
         if offset != None :
             status = smb2.smb2_pread_async(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, offset, ref_cb, None)
         else :
@@ -1804,11 +1814,13 @@ class FileHandle :
 
         w_ctx = weak_ref(self._ctx)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            ctx._done_cb(ref_cb_id)
             cb(ctx, status, cb_data)
         #end c_cb
 
@@ -1836,7 +1848,6 @@ class FileHandle :
             raise TypeError("buf is not bytes, bytearray or array.array of bytes")
         #end if
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._ctx._start_pending_cb(ref_cb)
         if offset != None :
             status = smb2.smb2_pwrite_async(self._ctx._smbobj, self._smbobj, bufptr, nrbytes, offset, ref_cb, None)
         else:
@@ -2048,7 +2059,17 @@ class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
     " use the create method."
 
-    __slots__ = ("_smbobj", "__weakref__", "loop", "_pending_cb") # to forestall typos
+    __slots__ = \
+        (
+            "_smbobj",
+            "__weakref__",
+            "loop",
+            "_pending_cb",
+            "_wrap_fd_cb",
+            "_wrap_events_cb",
+            "_save_fd",
+            "_save_fd_events",
+        ) # to forestall typos
 
     _instances = WeakValueDictionary()
 
@@ -2059,6 +2080,8 @@ class Context :
             self._smbobj = _smbobj
             self.loop = None
             self._pending_cb = {}
+            self._save_fd = None
+            self._save_fd_events = 0
             celf._instances[_smbobj] = self
         #end if
         return \
@@ -2127,36 +2150,147 @@ class Context :
         #end if
     #end service
 
+    def _set_fd_event_callbacks(self) :
+
+        w_self = weak_ref(self)
+
+        def change_fd(c_self, fd, cmd) :
+            print("change_fd(fd, cmd) = (%d, %d)" % (fd, cmd)) # debug
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            if cmd == SMB2.ADD_FD :
+                assert self._save_fd == None, \
+                    "trying to add fd %d, already got %d" % (fd, self._save_fd)
+                print("change_fd add %d, mask = %#08x" % (fd, self._save_fd_events)) # debug
+                self._save_fd = fd
+                if self._save_fd_events != 0 :
+                    for mask, add, writing in \
+                        (
+                            (select.POLLIN, self.loop.add_reader, False),
+                            (select.POLLOUT, self.loop.add_writer, True),
+                        ) \
+                    :
+                        add(self._save_fd, self._handle_poll, w_self, writing)
+                    #end for
+                #end if
+            elif cmd == SMB2.DEL_FD :
+                assert self._save_fd != None and self._save_fd == fd, \
+                    "trying to remove fd %d, but got %s" % (fd, self._save_fd)
+                print("change_fd del %d, mask = %#08x" % (fd, self._save_fd_events)) # debug
+                if self._save_fd_events != 0 :
+                    for mask, remove in \
+                        (
+                            (select.POLLIN, self.loop.remove_reader),
+                            (select.POLLOUT, self.loop.remove_writer),
+                        ) \
+                    :
+                        if self._save_fd_events & mask != 0 :
+                            remove(self._save_fd)
+                        #end if
+                    #end for
+                #end if
+                self._save_fd = None
+            #end if
+        #end change_fd
+
+        def change_events(c_self, fd, events) :
+            print("change_events(fd, events) = (%d, %08x)" % (fd, events)) # debug
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            assert events & ~(select.POLLIN | select.POLLOUT) == 0, \
+                "unexpected events in mask %#08x" % events
+            print("change_mask fd %s from %#08x to %#08x" % (self._save_fd, self._save_fd_events, events)) # debug
+            if self._save_fd != None :
+                for mask, add, remove, writing in \
+                    (
+                        (select.POLLIN, self.loop.add_reader, self.loop.remove_reader, False),
+                        (select.POLLOUT, self.loop.add_writer, self.loop.remove_writer, True),
+                    ) \
+                :
+                    if self._save_fd_events & mask > events & mask :
+                        remove(self._save_fd)
+                    elif self._save_fd_events & mask < events & mask :
+                        add(self._save_fd, self._handle_poll, w_self, writing)
+                    #end if
+                #end for
+            #end if
+            self._save_fd_events = events
+        #end change_events
+
+    #begin _set_fd_event_callbacks
+        if self.loop != None :
+            print("install fd event callbacks") # debug
+            self._wrap_fd_cb = SMB2.change_fd_cb(change_fd)
+            self._wrap_events_cb = SMB2.change_events_cb(change_events)
+        else :
+            self._wrap_fd_cb = None
+            self._wrap_events_cb = None
+        #end if
+        smb2.smb2_fd_event_callbacks(self._smbobj, self._wrap_fd_cb, self._wrap_events_cb)
+    #end _set_fd_event_callbacks
+
     @staticmethod
     def _handle_poll(w_self, writing) :
         self = w_self()
         assert self != None, "parent Context has gone away"
         mask = (select.POLLIN, select.POLLOUT)[writing]
+        print("doing _handle_poll, writing = %s, which_events = %#04x" % (writing, self.which_events)) # debug
+        if False :
+            try :
+                getattr(self.loop, ("remove_reader", "remove_writer")[writing])(self.fd)
+            except Exception as fail :
+                print("remove %s exc %s" % (("reader", "writer")[writing], str(fail)))
+            #end try
         self.service(mask)
+        print("_handle_poll done service call, fd = %d" % self._save_fd) # debug
+        if False :
+            if self._save_fd >= 0 :
+                print("re-add %s" % ("reader", "writer")[writing]) # debug
+                getattr(self.loop, ("add_reader", "add_writer")[writing]) \
+                    (self._save_fd, self._handle_poll, w_self, writing)
+            else :
+                self._save_fd = None
+            #end if
     #end _handle_poll
 
     def _start_pending_cb(self, cb) :
-        assert self.loop != None, "no event loop to attach coroutines to"
-        if len(self._pending_cb) == 0 :
+        #assert self.loop != None, "no event loop to attach coroutines to"
+        print("_start_pending_cb, self.fd = %d" % self.fd) # debug
+        key = id(cb)
+        self._pending_cb[key] = cb
+        if False : # self._save_fd == None :
             # ignore self.which_events, always watch for both read and write events
             # Unfortunately asyncio doesn’t seem to notify me about
             # POLLHUP, POLLRDHUP, POLLERR, POLLNVAL or POLLPRI events
             w_self = weak_ref(self)
-            self.loop.add_reader(self.fd, self._handle_poll, w_self, False)
-            self.loop.add_writer(self.fd, self._handle_poll, w_self, True)
+            self._save_fd = self.fd
+            self.loop.add_reader(self._save_fd, self._handle_poll, w_self, False)
+            print("done add reader") # debug
+            self.loop.add_writer(self._save_fd, self._handle_poll, w_self, True)
+            print("done add writer") # debug
         #end if
-        key = id(cb)
-        self._pending_cb[key] = cb
         return \
             key
     #end _start_pending_cb
 
     def _done_cb(self, cb_id) :
+        print("enter _done_cb, id = %s, self._save_fd = %s" % (cb_id, self._save_fd)) # debug
         self._pending_cb.pop(cb_id, None)
-        if len(self._pending_cb) == 0 :
-            self.loop.remove_reader(self.fd)
-            self.loop.remove_writer(self.fd)
+        if False : # self.fd < 0 and self._save_fd != None :
+            print("remove reader and writer for %d" % self._save_fd) # debug
+            try :
+                self.loop.remove_reader(self._save_fd)
+            except Exception as fail :
+                print("remove reader exc %s" % str(fail))
+            #end try
+            try :
+                self.loop.remove_writer(self._save_fd)
+            except Exception as fail :
+                print("remove writer exc %s" % str(fail))
+            #end try
+            self._save_fd = None
         #end if
+        print("exit _done_cb") # debug
     #end _done_cb
 
     def set_security_mode(self, security_mode) :
@@ -2213,11 +2347,13 @@ class Context :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            self._done_cb(ref_cb_id)
             cb(self, status, cb_data)
         #end c_cb
 
@@ -2230,12 +2366,12 @@ class Context :
             c_user = None
         #end if
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_connect_share_async(self._smbobj, c_server, c_share, c_user, ref_cb, None),
             "on connect_share_async"
           )
+        print("connect_share_async started, cb_data = %s" % repr(cb_data)) # debug
     #end connect_share_async_cb
 
     async def connect_share_async(self, server, share, user = None) :
@@ -2243,7 +2379,8 @@ class Context :
         def connect_share_done(self, status, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
-                if status != 0 :
+                print("connect_share_done status = %d, awaiting.done = %s, awaiting.cancelled = %s" % (status, awaiting.done(), awaiting.cancelled())) # debug
+                if status < 0 :
                     awaiting.set_exception(SMB2OSError(status, "on connect_share_async done"))
                 else :
                     awaiting.set_result(None)
@@ -2279,17 +2416,18 @@ class Context :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            self._done_cb(ref_cb_id)
             cb(self, status, cb_data)
         #end c_cb
 
     #begin disconnect_share_async_cb
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_disconnect_share_async(self._smbobj, ref_cb, None),
@@ -2327,11 +2465,13 @@ class Context :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            self._done_cb(ref_cb_id)
             if status == 0 :
                 dir = Dir(c_command_data, self)
             else :
@@ -2341,14 +2481,19 @@ class Context :
         #end c_cb
 
     #begin opendir_async_cb
-        c_path = path.encode()
+        print("start opendir_async_cb") # debug
+        if path != None :
+            c_path = path.encode()
+        else :
+            c_path = None
+        #end if
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_opendir_async(self._smbobj, c_path, ref_cb, None),
             "on opendir_async"
           )
+        print("done opendir_async_cb") # debug
     #end opendir_async_cb
 
     async def opendir_async(self, path) :
@@ -2388,11 +2533,13 @@ class Context :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            self._done_cb(ref_cb_id)
             info = {}
             connect_data = ct.cast(c_command_data, ct.POINTER(SMB2.srvsvc_netshareenumall_rep))[0]
             info["level"] = connect_data.level
@@ -2420,7 +2567,6 @@ class Context :
 
     #begin share_enum_async_cb
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_share_enum_async(self._smbobj, ref_cb, None),
@@ -2464,11 +2610,13 @@ class Context :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
+        ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            self._done_cb(ref_cb_id)
             if status == 0 :
                 the_file = FileHandle(ct.cast(c_command_data, SMB2.fh_ptr), self)
             else :
@@ -2479,7 +2627,6 @@ class Context :
 
     #begin open_async_cb
         ref_cb = SMB2.command_cb(c_cb)
-        ref_cb_id = self._start_pending_cb(ref_cb)
         SMB2OSError.raise_if \
           (
             smb2.smb2_open_async(self._smbobj, path.encode(), flags, ref_cb, None),
@@ -2542,6 +2689,7 @@ class Context :
             loop = asyncio.get_event_loop()
         #end if
         self.loop = loop
+        self._set_fd_event_callbacks()
         return \
             self
     #end attach_asyncio
