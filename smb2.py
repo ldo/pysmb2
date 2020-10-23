@@ -2242,7 +2242,7 @@ class Context :
                 print("remove %s exc %s" % (("reader", "writer")[writing], str(fail)))
             #end try
         self.service(mask)
-        print("_handle_poll done service call, fd = %d" % self._save_fd) # debug
+        print("_handle_poll done service call, fd = %s" % self._save_fd) # debug
         if False :
             if self._save_fd >= 0 :
                 print("re-add %s" % ("reader", "writer")[writing]) # debug
