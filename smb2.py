@@ -3169,7 +3169,69 @@ class Context :
           )
     #end truncate
 
-    # TODO: readlink
+    def readlink_async_cb(self, path, cb, cb_data = None) :
+
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, target, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            cb(ctx, status, target.decode(), cb_data)
+        #end c_cb
+
+    #begin readlink_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_readlink_async(self._smbobj, path.encode(), ref_cb, None),
+            "on readlink_async"
+          )
+    #end readlink_async_cb
+
+    async def readlink_async(self, path) :
+
+        def readlink_done(ctx, status, target, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on readlink_async done"))
+                else :
+                    awaiting.set_result(target)
+                #end if
+            #end if
+        #end readlink_done
+
+    #begin readlink_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.readlink_async_cb(path, readlink_done)
+        return \
+            await awaiting
+    #end readlink_async
+
+    def readlink(self, path) :
+        bufsize = 256
+        while True :
+            buf = (ct.c_char * bufsize)()
+            SMB2OSError.raise_if \
+              (
+                smb2.smb2_readlink(self._smbobj, path.encode(), buf, bufsize),
+                "on readlink"
+              )
+            if ord(buf[-1]) == 0 :
+                break
+            # result was truncated -- use bigger buffer
+            bufsize *= 2
+        #end while
+        return \
+            buf.value.decode()
+    #end readlink
 
     def echo_async_cb(self, cb, cb_data = None) :
 
