@@ -3180,7 +3180,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, target.decode(), cb_data)
+            cb(self, status, ct.cast(target, ct.c_char_p).value.decode(), cb_data)
         #end c_cb
 
     #begin readlink_async_cb
