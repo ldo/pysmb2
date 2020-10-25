@@ -1661,10 +1661,11 @@ class FileHandle :
 
     def fsync(self) :
         assert self._smbobj != None, "file already closed"
-        status = smb2.smb2_fsync(self._ctx._smbobj, self._smbobj)
-        if status != 0 :
-            raise SMB2OSError(status, "on fsync")
-        #end if
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_fsync(self._ctx._smbobj, self._smbobj),
+            "on fsync"
+          )
     #end fsync
 
     def read_async_cb(self, *, buf = None, nrbytes = None, offset = None, cb, cb_data = None) :
@@ -1924,7 +1925,120 @@ class FileHandle :
             curoffset.value
     #end lseek
 
-    # TODO: fstat, ftruncate
+    def fstat_async_cb(self, cb, cb_data = None) :
+
+        info = SMB2.stat_64()
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            cb(ctx, status, info, cb_data)
+        #end c_cb
+
+    #begin fstat_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_fstat_async(self._ctx._smbobj, self._smbobj, ct.byref(info), ref_cb, None),
+            "on fstat_async"
+          )
+    #end fstat_async_cb
+
+    async def fstat_async(self) :
+
+        def fstat_done(ctx, status, info, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on fstat_async done"))
+                else :
+                    awaiting.set_result(info)
+                #end if
+            #end if
+        #end fstat_done
+
+    #begin fstat_async
+        assert self._smbobj != None, "file already closed"
+        assert self._ctx.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.fstat_async_cb(fstat_done)
+        return \
+            await awaiting
+    #end fstat_async
+
+    def fstat(self) :
+        info = SMB2.stat_64()
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_fstat(self._ctx._smbobj, self._smbobj, ct.byref(info)),
+            "on fstat"
+          )
+        return \
+            info
+    #end fstat
+
+    def ftruncate_async_cb(self, length, cb, cb_data = None) :
+
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_ctx, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            cb(ctx, status, cb_data)
+        #end c_cb
+
+    #begin ftruncate_async_db
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_ftruncate_async(self._ctx._smbobj, self._smbobj, length, ref_cb, None),
+            "on ftruncate_async"
+          )
+    #end ftruncate_async_cb
+
+    async def ftruncate_async(self, length) :
+
+        def ftruncate_done(ctx, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on ftruncate_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end ftruncate_done
+
+    #begin ftruncate_async
+        assert self._smbobj != None, "file already closed"
+        assert self._ctx.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.ftruncate_async_cb(length, ftruncate_done, None)
+        return \
+            await awaiting
+    #end ftruncate_async
+
+    def ftruncate(self, length) :
+        assert self._smbobj != None, "file already closed"
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_ftruncate(self._ctx._smbobj, self._smbobj, length),
+            "on fsync"
+          )
+    #end ftruncate
 
 #end FileHandle
 
@@ -2149,6 +2263,14 @@ class Context :
         #end if
     #end service
 
+    @staticmethod
+    def _handle_poll(w_self, writing) :
+        self = w_self()
+        assert self != None, "parent Context has gone away"
+        mask = (select.POLLIN, select.POLLOUT)[writing]
+        self.service(mask)
+    #end _handle_poll
+
     def _set_fd_event_callbacks(self) :
 
         w_self = weak_ref(self)
@@ -2222,13 +2344,19 @@ class Context :
         smb2.smb2_fd_event_callbacks(self._smbobj, self._wrap_fd_cb, self._wrap_events_cb)
     #end _set_fd_event_callbacks
 
-    @staticmethod
-    def _handle_poll(w_self, writing) :
-        self = w_self()
-        assert self != None, "parent Context has gone away"
-        mask = (select.POLLIN, select.POLLOUT)[writing]
-        self.service(mask)
-    #end _handle_poll
+    def attach_asyncio(self, loop = None) :
+        "attaches this Context object to an asyncio event loop. If none is" \
+        " specified, the default event loop (as returned from asyncio.get_event_loop()" \
+        " is used."
+        assert self.loop == None, "already attached to an event loop"
+        if loop == None :
+            loop = asyncio.get_event_loop()
+        #end if
+        self.loop = loop
+        self._set_fd_event_callbacks()
+        return \
+            self
+    #end attach_asyncio
 
     def set_security_mode(self, security_mode) :
         smb2.smb2_set_security_mode(self._smbobj, security_mode)
@@ -2241,6 +2369,8 @@ class Context :
         return \
             self
     #end set_seal
+
+    # TODO: set_sign
 
     def set_authentication(self, val) :
         smb2.smb2_set_authentication(self._smbobj, val)
@@ -2278,9 +2408,53 @@ class Context :
             smb2.smb2_get_client_guid(self._smbobj).decode()
     #end client_guid
 
-    # TODO: connect_async -- may need to do this to allocate valid fd if I want to use connect_share_async?
+    def connect_async_cb(self, server, cb, cb_data = None) :
 
-    def connect_share_async_cb(self, server, share, user, cb, cb_data) :
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin connect_async_cb
+        c_server = server.encode()
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_connect_async(self._smbobj, c_server, ref_cb, None),
+            "on connect_async"
+          )
+    #end connect_async_cb
+
+    async def connect_async(self, server) :
+
+        def connect_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on connect_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end connect_done
+
+    #begin connect_share_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.connect_async_cb(server, connect_done, None)
+        await awaiting
+    #end connect_async
+
+    def connect_share_async_cb(self, server, share, user, cb, cb_data = None) :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
@@ -2347,7 +2521,7 @@ class Context :
           )
     #end connect_share
 
-    def disconnect_share_async_cb(self, cb, cb_data) :
+    def disconnect_share_async_cb(self, cb, cb_data = None) :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
@@ -2396,7 +2570,9 @@ class Context :
         SMB2OSError.raise_if(smb2.smb2_disconnect_share(self._smbobj), "on disconnect_share")
     #end disconnect_share
 
-    def opendir_async_cb(self, path, cb, cb_data) :
+    # TODO: add_compound_pdu, free_pdu, queue_pdu
+
+    def opendir_async_cb(self, path, cb, cb_data = None) :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
@@ -2462,7 +2638,7 @@ class Context :
             Dir(self, c_result)
     #end opendir
 
-    def share_enum_async_cb(self, cb, cb_data) :
+    def share_enum_async_cb(self, cb, cb_data = None) :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
@@ -2539,7 +2715,7 @@ class Context :
             URL(result)
     #end parse_url
 
-    def open_async_cb(self, path, flags, cb, cb_data) :
+    def open_async_cb(self, path, flags, cb, cb_data = None) :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
@@ -2611,25 +2787,444 @@ class Context :
             smb2.smb2_get_max_write_size(self._smbobj)
     #end max_write_size
 
-    # TODO: unlink, rmdir, mkdir, statvfs, stat, rename, truncate, readlink, echo
+    def unlink_async_cb(self, path, cb, cb_data = None) :
 
-    def attach_asyncio(self, loop = None) :
-        "attaches this Context object to an asyncio event loop. If none is" \
-        " specified, the default event loop (as returned from asyncio.get_event_loop()" \
-        " is used."
-        assert self.loop == None, "already attached to an event loop"
-        if loop == None :
-            loop = asyncio.get_event_loop()
-        #end if
-        self.loop = loop
-        self._set_fd_event_callbacks()
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin open_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_unlink_async(self._smbobj, path.encode(), ref_cb, None),
+            "on unlink_async"
+          )
+    #end unlink_async_cb
+
+    async def unlink_async(self, path) :
+
+        def unlink_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on unlink_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end unlink_done
+
+    #begin unlink_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.unlink_async_cb(path, unlink_done, None)
+        await awaiting
+    #end unlink_async
+
+    def unlink(self, path) :
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_unlink(self._smbobj, path.encode()),
+            "on unlink"
+          )
+    #end unlink
+
+    def rmdir_async_cb(self, path, cb, cb_data = None) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin open_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_rmdir_async(self._smbobj, path.encode(), ref_cb, None),
+            "on rmdir_async"
+          )
+    #end rmdir_async_cb
+
+    async def rmdir_async(self, path) :
+
+        def rmdir_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on rmdir_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end rmdir_done
+
+    #begin rmdir_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.rmdir_async_cb(path, rmdir_done, None)
+        await awaiting
+    #end rmdir_async
+
+    def rmdir(self, path) :
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_rmdir(self._smbobj, path.encode()),
+            "on rmdir"
+          )
+    #end rmdir
+
+    def mkdir_async_cb(self, path, cb, cb_data = None) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin open_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_mkdir_async(self._smbobj, path.encode(), ref_cb, None),
+            "on mkdir_async"
+          )
+    #end mkdir_async_cb
+
+    async def mkdir_async(self, path) :
+
+        def mkdir_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on mkdir_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end mkdir_done
+
+    #begin mkdir_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.mkdir_async_cb(path, mkdir_done, None)
+        await awaiting
+    #end mkdir_async
+
+    def mkdir(self, path) :
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_mkdir(self._smbobj, path.encode()),
+            "on mkdir"
+          )
+    #end mkdir
+
+    def statvfs_async_cb(self, path, cb, cb_data = None) :
+
+        info = SMB2.statvfs()
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            cb(ctx, status, info, cb_data)
+        #end c_cb
+
+    #begin statvfs_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_statvfs_async(self._smbobj, path.encode(), ct.byref(info), ref_cb, None),
+            "on statvfs_async"
+          )
+    #end statvfs_async_cb
+
+    async def statvfs_async(self, path) :
+
+        def statvfs_done(ctx, status, info, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on statvfs_async done"))
+                else :
+                    awaiting.set_result(info)
+                #end if
+            #end if
+        #end statvfs_done
+
+    #begin statvfs_async
+        assert self._smbobj != None, "file already closed"
+        assert self._ctx.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.statvfs_async_cb(path, statvfs_done)
         return \
-            self
-    #end attach_asyncio
+            await awaiting
+    #end statvfs_async
+
+    def statvfs(self, path) :
+        info = SMB2.statvfs()
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_statvfs(self._smbobj, path.encode(), ct.byref(info)),
+            "on statvfs"
+          )
+        return \
+            info
+    #end statvfs
+
+    def stat_async_cb(self, path, cb, cb_data = None) :
+
+        info = SMB2.stat_64()
+        w_ctx = weak_ref(self._ctx)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            ctx = w_ctx()
+            assert ctx != None, "parent Context has gone away"
+            cb(ctx, status, info, cb_data)
+        #end c_cb
+
+    #begin stat_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_stat_async(self._smbobj, path.encode(), ct.byref(info), ref_cb, None),
+            "on stat_async"
+          )
+    #end stat_async_cb
+
+    async def stat_async(self, path) :
+
+        def stat_done(ctx, status, info, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on stat_async done"))
+                else :
+                    awaiting.set_result(info)
+                #end if
+            #end if
+        #end stat_done
+
+    #begin stat_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self._ctx.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.stat_async_cb(path, stat_done)
+        return \
+            await awaiting
+    #end stat_async
+
+    def stat(self, path) :
+        info = SMB2.stat_64()
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_stat(self._smbobj, path.encode(), ct.byref(info)),
+            "on stat"
+          )
+        return \
+            info
+    #end stat
+
+    def rename_async_cb(self, oldpath, newpath, cb, cb_data = None) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin rename_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_rename_async(self._smbobj, oldpath.encode(), newpath.encode(), ref_cb, None),
+            "on rename_async"
+          )
+    #end rename_async_cb
+
+    async def rename_async(self, oldpath, newpath) :
+
+        def rename_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on rename_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end rename_done
+
+    #begin rename_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.rename_async_cb(oldpath, newpath, rename_done, None)
+        await awaiting
+    #end rename_async
+
+    def rename(self, oldpath, newpath) :
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_rename(self._smbobj, oldpath.encode(), newpath.encode()),
+            "on rename"
+          )
+    #end rename
+
+    def truncate_async_cb(self, path, length, cb, cb_data = None) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin truncate_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_truncate_async(self._smbobj, path.encode(), length, ref_cb, None),
+            "on truncate_async"
+          )
+    #end truncate_async_cb
+
+    async def truncate_async(self, path, length) :
+
+        def truncate_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on truncate_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end truncate_done
+
+    #begin truncate_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.truncate_async_cb(path, length, truncate_done, None)
+        await awaiting
+    #end truncate_async
+
+    def truncate(self, path, length) :
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_truncate(self._smbobj, path.encode(), length),
+            "on truncate"
+          )
+    #end truncate
+
+    # TODO: readlink
+
+    def echo_async_cb(self, cb, cb_data = None) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin open_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_echo_async(self._smbobj, ref_cb, None),
+            "on echo_async"
+          )
+    #end echo_async_cb
+
+    async def echo_async(self) :
+
+        def echo_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status != 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on echo_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end echo_done
+
+    #begin echo_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.echo_async_cb(echo_done, None)
+        await awaiting
+    #end echo_async
+
+    def echo(self) :
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_echo(self._smbobj),
+            "on echo"
+          )
+    #end echo
 
 #end Context
-
-# more TBD
 
 #+
 # Overall
