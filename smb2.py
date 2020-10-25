@@ -2949,16 +2949,16 @@ class Context :
     def statvfs_async_cb(self, path, cb, cb_data = None) :
 
         info = SMB2.statvfs()
-        w_ctx = weak_ref(self._ctx)
+        w_self = weak_ref(self)
           # to avoid a reference cycle
         ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
             nonlocal ref_cb
             ref_cb = None
-            ctx = w_ctx()
-            assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, info, cb_data)
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, info, cb_data)
         #end c_cb
 
     #begin statvfs_async_cb
@@ -2985,8 +2985,8 @@ class Context :
 
     #begin statvfs_async
         assert self._smbobj != None, "file already closed"
-        assert self._ctx.loop != None, "no event loop to attach coroutines to"
-        awaiting = self._ctx.loop.create_future()
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
         ref_awaiting = weak_ref(awaiting)
           # weak ref to avoid circular refs with loop
         self.statvfs_async_cb(path, statvfs_done)
@@ -3008,16 +3008,16 @@ class Context :
     def stat_async_cb(self, path, cb, cb_data = None) :
 
         info = SMB2.stat_64()
-        w_ctx = weak_ref(self._ctx)
+        w_self = weak_ref(self)
           # to avoid a reference cycle
         ref_cb = None
 
         def c_cb(c_self, status, c_command_data, _) :
             nonlocal ref_cb
             ref_cb = None
-            ctx = w_ctx()
-            assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, info, cb_data)
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, info, cb_data)
         #end c_cb
 
     #begin stat_async_cb
@@ -3044,7 +3044,7 @@ class Context :
 
     #begin stat_async
         assert self.loop != None, "no event loop to attach coroutines to"
-        awaiting = self._ctx.loop.create_future()
+        awaiting = self.loop.create_future()
         ref_awaiting = weak_ref(awaiting)
           # weak ref to avoid circular refs with loop
         self.stat_async_cb(path, stat_done)
@@ -3171,16 +3171,16 @@ class Context :
 
     def readlink_async_cb(self, path, cb, cb_data = None) :
 
-        w_ctx = weak_ref(self._ctx)
+        w_self = weak_ref(self)
           # to avoid a reference cycle
         ref_cb = None
 
         def c_cb(c_self, status, target, _) :
             nonlocal ref_cb
             ref_cb = None
-            ctx = w_ctx()
-            assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, target.decode(), cb_data)
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, target.decode(), cb_data)
         #end c_cb
 
     #begin readlink_async_cb
@@ -3207,7 +3207,7 @@ class Context :
 
     #begin readlink_async
         assert self.loop != None, "no event loop to attach coroutines to"
-        awaiting = self._ctx.loop.create_future()
+        awaiting = self.loop.create_future()
         ref_awaiting = weak_ref(awaiting)
           # weak ref to avoid circular refs with loop
         self.readlink_async_cb(path, readlink_done)
