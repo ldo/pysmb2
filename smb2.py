@@ -1915,10 +1915,11 @@ class FileHandle :
     def lseek(self, offset, whence) :
         assert self._smbobj != None, "file already closed"
         curoffset = ct.c_uint64()
-        status = smb2.smb2_lseek(self._ctx._smbobj, self._smbobj, offset, whence, ct.byref(curoffset))
-        if status != 0 :
-            raise TBD
-        #end if
+        SMB2OSError.raise_if \
+          (
+            smb2.smb2_lseek(self._ctx._smbobj, self._smbobj, offset, whence, ct.byref(curoffset),
+            "on lseek")
+          )
         return \
             curoffset.value
     #end lseek
