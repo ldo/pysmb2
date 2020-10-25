@@ -2772,7 +2772,7 @@ class Context :
             self.raise_error("on open")
         #end if
         return \
-            FileHandle(ct.cast(SMB2.fh_ptr, result), self)
+            FileHandle(ct.cast(result, SMB2.fh_ptr), self)
     #end open
 
     @property
