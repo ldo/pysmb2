@@ -2036,7 +2036,7 @@ class FileHandle :
         SMB2OSError.raise_if \
           (
             smb2.smb2_ftruncate(self._ctx._smbobj, self._smbobj, length),
-            "on fsync"
+            "on ftruncate"
           )
     #end ftruncate
 
@@ -2801,7 +2801,7 @@ class Context :
             cb(self, status, cb_data)
         #end c_cb
 
-    #begin open_async_cb
+    #begin unlink_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
@@ -2854,7 +2854,7 @@ class Context :
             cb(self, status, cb_data)
         #end c_cb
 
-    #begin open_async_cb
+    #begin rmdir_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
@@ -2907,7 +2907,7 @@ class Context :
             cb(self, status, cb_data)
         #end c_cb
 
-    #begin open_async_cb
+    #begin mkdir_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
@@ -3130,7 +3130,7 @@ class Context :
             cb(self, status, cb_data)
         #end c_cb
 
-    #begin truncate_cb
+    #begin truncate_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
