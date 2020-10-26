@@ -2292,7 +2292,7 @@ class PDU :
     def __del__(self) :
         if not self._queued and self._ctx != None and self._smbobj != None :
             ctx = self._ctx()
-            if cts != None :
+            if ctx != None :
                 smb2.smb2_free_pdu(ctx._smbobj, self._smbobj)
             #end if
             self._smbobj = None
