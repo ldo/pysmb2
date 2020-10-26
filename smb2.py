@@ -1372,11 +1372,11 @@ smb2.smb2_destroy_url.argtypes = (ct.POINTER(SMB2.url),)
 smb2.smb2_destroy_url.restype = None
 
 smb2.smb2_add_compound_pdu.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.dcerpc_pdu_ptr)
+    (SMB2.context_ptr, SMB2.pdu_ptr, SMB2.pdu_ptr)
 smb2.smb2_add_compound_pdu.restype = None
-smb2.smb2_free_pdu.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr)
+smb2.smb2_free_pdu.argtypes = (SMB2.context_ptr, SMB2.pdu_ptr)
 smb2.smb2_free_pdu.restype = None
-smb2.smb2_queue_pdu.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr)
+smb2.smb2_queue_pdu.argtypes = (SMB2.context_ptr, SMB2.pdu_ptr)
 smb2.smb2_queue_pdu.restype = None
 
 smb2.smb2_opendir_async.argtypes = (SMB2.context_ptr, ct.c_char_p, SMB2.command_cb, ct.c_void_p)
@@ -1579,6 +1579,7 @@ class File :
     " from_file_id() or Context.open() methods."
 
     __slots__ = ("_smbobj", "_ctx", "__weakref__") # to forestall typos
+      # TBD _ctx should be weak ref
 
     def __init__(self, _smbobj, _ctx) :
         self._smbobj = _smbobj
@@ -1681,7 +1682,7 @@ class File :
             cb(ctx, status, cb_data)
         #end c_cb
 
-    #begin fsync_async_db
+    #begin fsync_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
@@ -1768,7 +1769,7 @@ class File :
             elif isinstance(buf, ct.c_void_p) :
                 bufptr = buf
             else :
-                raise TypeError("buf is not bytes, bytearray or array.array of bytes")
+                raise TypeError("buf is not bytearray or array.array of bytes")
             #end if
             buf_is_mine = False
         else :
@@ -1839,7 +1840,7 @@ class File :
             elif isinstance(buf, ct.c_void_p) :
                 bufptr = buf
             else :
-                raise TypeError("buf is not bytes, bytearray or array.array of bytes")
+                raise TypeError("buf is not bytearray or array.array of bytes")
             #end if
             buf_is_mine = False
         else :
@@ -2053,7 +2054,7 @@ class File :
             cb(ctx, status, cb_data)
         #end c_cb
 
-    #begin ftruncate_async_db
+    #begin ftruncate_async_cb
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
@@ -2101,7 +2102,7 @@ class URL :
     "wrapper for an smb2_url object. Do not instantiate directly; get from" \
     " Context.parse_url()."
 
-    __slots__ = ("_smbobj", "_ctx", "__weakref__") # to forestall typos
+    __slots__ = ("_smbobj", "__weakref__") # to forestall typos
 
     def __init__(self, _smbobj) :
         self._smbobj = _smbobj
@@ -2224,6 +2225,75 @@ class Dir :
     #end seek
 
 #end Dir
+
+class PDU :
+
+    __slots__ = \
+        (
+            "_smbobj",
+            "__weakref__",
+            "_ctx", # TBD should be weak ref
+            "_req", # keep reference to request block to stop it disappearing prematurely
+            "_queued",
+            "_added",
+            "_awaiting",
+        ) # to forestall typos
+
+    _instances = WeakValueDictionary()
+
+    def __new__(celf, _smbobj, _ctx, _req) :
+        self = celf._instances.get(_smbobj)
+        if self == None :
+            self = super().__new__(celf)
+            self._smbobj = _smbobj
+            self._ctx = _ctx
+            self._req = _req
+            self._queued = False # TBD how to avoid requeuing forgotten/reclaimed PDUs?
+            self._added = []
+            self._awaiting = None
+            celf._instances[_smbobj] = self
+        #end if
+        return \
+            self
+    #end __new__
+
+    def __del__(self) :
+        if not self._queued and self._ctx != None and self._smbobj != None :
+            smb2.smb2_free_pdu(self._ctx._smbobj, self._smbobj)
+            self._smbobj = None
+        #end if
+    #end __del__
+
+    def __await__(self) :
+        if self._awaiting == None :
+            raise asyncio.InvalidStateError("PDU not in awaitable state")
+        #end if
+        return \
+            self._awaiting.__await__()
+    #end __await__
+
+    def add_compound(self, other) :
+        if not isinstance(other, PDU) :
+            raise TypeError("other is not a PDU")
+        #end if
+        smb2.smb2_add_compound_pdu(self._ctx._smbobj, self._smbobj, other._smbobj)
+        self._added.append(other)
+        return \
+            self
+    #end add_compound
+
+    def queue(self) :
+        assert not self._queued, "PDU already queued"
+        smb2.smb2_queue_pdu(self._ctx._smbobj, self._smbobj)
+        self._queued = True
+        for other in self._added :
+            other._queued = True
+        #end for
+        return \
+            self
+    #end queue
+
+#end PDU
 
 class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
@@ -2625,7 +2695,7 @@ class Context :
         SMB2OSError.raise_if(smb2.smb2_disconnect_share(self._smbobj), "on disconnect_share")
     #end disconnect_share
 
-    # TODO: add_compound_pdu, free_pdu, queue_pdu
+    # pdu calls are in PDU class
 
     def opendir_async_cb(self, path, cb, cb_data = None) :
 
@@ -3342,6 +3412,193 @@ class Context :
     #end echo
 
 #end Context
+def def_async_cmds() :
+
+    def def_cmd_async1(name, has_reply) :
+
+        routine = getattr(smb2, "smb2_cmd_%s_async" % name)
+        reqtype = getattr(SMB2, "%s_request" % name)
+        if has_reply :
+            replytype = getattr(SMB2, "%s_reply" % name)
+        else :
+            replytype = None
+        #end if
+        methname_cb = "cmd_%s_async_cb" % name
+        methname = "cmd_%s_async" % name
+
+        def cmd_async_cb(self, req, cb, cb_data) :
+
+            w_self = weak_ref(self)
+              # to avoid a reference cycle
+            ref_cb = None
+
+            def c_cb(c_self, status, c_command_data, _) :
+                nonlocal ref_cb
+                ref_cb = None
+                self = w_self()
+                assert self != None, "parent Context has gone away"
+                if replytype != None :
+                    reply = ct.cast(c_command_data, ct.POINTER(replytype)).contents
+                    cb(self, status, reply, cb_data)
+                else :
+                    cb(self, status, cb_data)
+                #end if
+            #end c_cb
+
+        #begin cmd_async_cb
+            if not isinstance(req, reqtype) :
+                raise TypeError("req arg must be of type %s" % reqtype.__name__)
+            #end if
+            ref_cb = SMB2.command_cb(c_cb)
+            c_pdu = routine(self._smbobj, ct.byref(req), ref_cb, cb_data)
+            if c_pdu == None :
+                self.raise_error("on %s" % methname_cb)
+            #end if
+            return \
+                PDU(c_pdu, self, req)
+        #end cmd_async_cb
+
+        def cmd_async(self, req) :
+
+            if has_reply :
+
+                def cmd_done(self, status, reply, _) :
+                    awaiting = ref_awaiting()
+                    if awaiting != None :
+                        if status != 0 :
+                            awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
+                        else :
+                            awaiting.set_result(reply)
+                        #end if
+                    #end if
+                #end cmd_done
+
+            else :
+
+                def cmd_done(self, status, _) :
+                    awaiting = ref_awaiting()
+                    if awaiting != None :
+                        if status != 0 :
+                            awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
+                        else :
+                            awaiting.set_result(None)
+                        #end if
+                    #end if
+                #end cmd_done
+
+            #end if
+
+        #begin cmd_async
+            assert self.loop != None, "no event loop to attach coroutines to"
+            awaiting = self.loop.create_future()
+            ref_awaiting = weak_ref(awaiting)
+              # weak ref to avoid circular refs with loop
+            #pdu = getattr(self, methname_cb)(req, cmd_done, None)
+            pdu = cmd_async_cb(self, req, cmd_done, None)
+            pdu._awaiting = awaiting
+            return \
+                pdu
+        #end cmd_async
+
+    #begin def_cmd_async1
+        cmd_async_cb.__name__ = methname_cb
+        cmd_async.__name__ = methname
+        setattr(Context, methname_cb, cmd_async_cb)
+        setattr(Context, methname, cmd_async)
+    #end def_cmd_async1
+
+    def def_cmd_async0(name) :
+
+        routine = getattr(smb2, "smb2_cmd_%s_async" % name)
+        methname_cb = "cmd_%s_async_cb" % name
+        methname = "cmd_%s_async" % name
+
+        def cmd_async_cb(self, cb, cb_data) :
+
+            w_self = weak_ref(self)
+              # to avoid a reference cycle
+            ref_cb = None
+
+            def c_cb(c_self, status, c_command_data, _) :
+                nonlocal ref_cb
+                ref_cb = None
+                self = w_self()
+                assert self != None, "parent Context has gone away"
+                cb(self, status, cb_data)
+            #end c_cb
+
+        #begin cmd_async_cb
+            ref_cb = SMB2.command_cb(c_cb)
+            c_pdu = routine(self._smbobj, ref_cb, cb_data)
+            if c_pdu == None :
+                self.raise_error("on %s" % methname_cb)
+            #end if
+            return \
+                PDU(c_pdu, self, None)
+        #end cmd_async_cb
+
+        def cmd_async(self) :
+
+            def cmd_done(self, status, _) :
+                awaiting = ref_awaiting()
+                if awaiting != None :
+                    if status != 0 :
+                        awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
+                    else :
+                        awaiting.set_result(None)
+                    #end if
+                #end if
+            #end cmd_done
+
+        #begin cmd_async
+            assert self.loop != None, "no event loop to attach coroutines to"
+            awaiting = self.loop.create_future()
+            ref_awaiting = weak_ref(awaiting)
+              # weak ref to avoid circular refs with loop
+            pdu = getattr(self, methname_cb)(cmd_done, None)
+            pdu._awaiting = awaiting
+            return \
+                pdu
+        #end cmd_async
+
+    #begin def_cmd_async0
+        cmd_async_cb.__name__ = methname_cb
+        cmd_async.__name__ = methname
+        setattr(Context, methname_cb, cmd_async_cb)
+        setattr(Context, methname, cmd_async)
+    #end def_cmd_async0
+
+#begin def_async_cmds
+    for name, has_reply in \
+        (
+            ("negotiate", True),
+            ("session_setup", True),
+            ("tree_connect", True),
+            ("create", True),
+            ("close", True),
+            ("read", False),
+            ("write", False),
+            ("query_directory", True),
+            ("query_info", True),
+            ("ioctl", True),
+            ("flush", False),
+        ) \
+    :
+        def_cmd_async1(name, has_reply)
+    #end for
+    for name in \
+        (
+            "tree_disconnect",
+            "set_info", # I don’t think this has any reply info, regardless of what docs say
+            "echo",
+            "logoff",
+        ) \
+    :
+        def_cmd_async0(name)
+    #end for
+#end def_async_cmds
+def_async_cmds()
+del def_async_cmds
 
 #+
 # Overall
@@ -3349,7 +3606,7 @@ class Context :
 
 def _atexit() :
     # disable all __del__ methods at process termination to avoid segfaults
-    for cłass in URL, Dir, Context :
+    for cłass in URL, PDU, Dir, Context :
         delattr(cłass, "__del__")
     #end for
 #end _atexit
