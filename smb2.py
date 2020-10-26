@@ -3439,9 +3439,9 @@ def def_async_cmds() :
                 assert self != None, "parent Context has gone away"
                 if replytype != None :
                     reply = ct.cast(c_command_data, ct.POINTER(replytype)).contents
-                    cb(self, status, reply, cb_data)
+                    cb(self, - nterror_to_errno(status), reply, cb_data)
                 else :
-                    cb(self, status, cb_data)
+                    cb(self, - nterror_to_errno(status), cb_data)
                 #end if
             #end c_cb
 
@@ -3524,7 +3524,7 @@ def def_async_cmds() :
                 ref_cb = None
                 self = w_self()
                 assert self != None, "parent Context has gone away"
-                cb(self, status, cb_data)
+                cb(self, - nterror_to_errno(status), cb_data)
             #end c_cb
 
         #begin cmd_async_cb
