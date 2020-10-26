@@ -2279,7 +2279,7 @@ class PDU :
     def __init__(self, _smbobj, _ctx, _req) :
         # Note no _instances WeakValueDictionary because I can’t figure
         # out how to set _queued flag correctly on recreating PDU wrapper
-        # object. So always calls this for newly-created PDUs, never for
+        # object. So always call this for newly-created PDUs, never for
         # previously-existing ones!
         self._smbobj = _smbobj
         self._ctx = weak_ref(_ctx)
