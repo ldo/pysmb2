@@ -2227,6 +2227,13 @@ class Dir :
 #end Dir
 
 class PDU :
+    "Not sure what “PDU” stands for, but it represents a step in a sequence" \
+    " of async calls. Do not instantiate directly; get from Context.cmd_xxx_async" \
+    " and Context.cmd_xxx_async_cb calls. Use the add_compound() method to chain" \
+    " subsequent PDUs to the first one; then call queue() on the first PDU to" \
+    " start the whole sequence running. You can await any queued PDU to retrieve" \
+    " its result on completion. Doing an await on the last one ensures that the" \
+    " whole sequence has completed."
 
     __slots__ = \
         (
