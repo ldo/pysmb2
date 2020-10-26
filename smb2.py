@@ -1519,7 +1519,7 @@ class FileID :
 
 #end FileID
 
-class FileHandle :
+class File :
     "wrapper for an smb2_fh_ptr object. Do not instantiate directly; use the" \
     " from_file_id() or Context.open() methods."
 
@@ -2040,7 +2040,7 @@ class FileHandle :
           )
     #end ftruncate
 
-#end FileHandle
+#end File
 
 class URL :
     "wrapper for an smb2_url object. Do not instantiate directly; get from" \
@@ -2727,7 +2727,7 @@ class Context :
             self = w_self()
             assert self != None, "parent Context has gone away"
             if status == 0 :
-                the_file = FileHandle(ct.cast(c_command_data, SMB2.fh_ptr), self)
+                the_file = File(ct.cast(c_command_data, SMB2.fh_ptr), self)
             else :
                 the_file = None
             #end if
@@ -2772,7 +2772,7 @@ class Context :
             self.raise_error("on open")
         #end if
         return \
-            FileHandle(ct.cast(result, SMB2.fh_ptr), self)
+            File(ct.cast(result, SMB2.fh_ptr), self)
     #end open
 
     @property
