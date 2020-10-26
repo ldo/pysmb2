@@ -2311,6 +2311,9 @@ class PDU :
         if not isinstance(other, PDU) :
             raise TypeError("other is not a PDU")
         #end if
+        if other._queued :
+            raise asyncio.InvalidStateError("other PDU has already been queued")
+        #end if
         ctx = self._ctx()
         assert ctx != None, "parent Context has gone away"
         smb2.smb2_add_compound_pdu(ctx._smbobj, self._smbobj, other._smbobj)
