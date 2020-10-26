@@ -1010,6 +1010,7 @@ class SMB2 :
                 ("free", ct.CFUNCTYPE(None, ct.c_void_p)),
             ]
     #end iovec
+    iovec_ptr = ct.POINTER(iovec)
 
     command_cb = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_int, ct.c_void_p, ct.c_void_p)
 
@@ -1141,18 +1142,53 @@ class SMB2 :
         ]
     #end srvsvc_netshareenumall_rep
 
+    class srvsvc_netshareinfo(ct.Structure) :
+        pass
+    srvsvc_netshareinfo._fields_ = \
+        [
+            ("level", ct.c_uint32),
+            ("info1", srvsvc_netshareinfo1), # was a union containing just this field in original
+        ]
+    #end srvsvc_netshareinfo
+
+    class srvsvc_netsharegetinfo_req(ct.Structure) :
+        _fields_ = \
+            [
+                ("server", ct.c_char_p),
+                ("share", ct.c_char_p),
+                ("level", ct.c_uint32),
+            ]
+    #end srvsvc_netsharegetinfo_req
+
+    class srvsvc_netsharegetinfo_rep(ct.Structure) :
+        pass
+    srvsvc_netsharegetinfo_rep._fields_ = \
+        [
+            ("status", ct.c_uint32),
+            ("info", ct.POINTER(srvsvc_netshareinfo)),
+        ]
+    #end srvsvc_netsharegetinfo_rep
+
+    class srvsvc_rep(ct.Structure) :
+        _fields_ = \
+            [
+                ("status", ct.c_uint32),
+            ]
+    #end srvsvc_rep
+
     # from smb2/libsmb2-dcerpc.h:
 
     dcerpc_context_ptr = ct.c_void_p
     dcerpc_pdu_ptr = ct.c_void_p
 
-    dcerpc_coder = ct.CFUNCTYPE(ct.c_int, dcerpc_context_ptr, dcerpc_pdu_ptr, ct.POINTER(iovec), ct.c_int, ct.c_void_p)
+    dcerpc_coder = ct.CFUNCTYPE(ct.c_int, dcerpc_context_ptr, dcerpc_pdu_ptr, iovec_ptr, ct.c_int, ct.c_void_p)
     dcerpc_cb = ct.CFUNCTYPE(None, dcerpc_context_ptr, ct.c_int, ct.c_void_p, ct.c_void_p)
 
     ptr_type = ct.c_uint
     # values for ptr_type:
     PTR_REF = 0
     PTR_UNIQUE = 1
+    PTR_FULL = 2
 
     class dcerpc_uuid(ct.Structure) :
         _fields_ = \
@@ -1186,6 +1222,14 @@ class SMB2 :
     # from smb2/libsmb2-dcerpc-srvsvc.h:
 
     NETSHAREENUMALL = 15
+    NETSHAREGETINFO = 16
+
+    SHARE_TYPE_DISKTREE = 0
+    SHARE_TYPE_PRINTQ = 1
+    SHARE_TYPE_DEVICE = 2
+    SHARE_TYPE_IPC = 3
+    SHARE_TYPE_TEMPORARY = 0x40000000
+    SHARE_TYPE_HIDDEN = 0x80000000
 
 #end SMB2
 
@@ -1199,6 +1243,12 @@ srvsvc_interface = SMB2.p_syntax_id_t.in_dll(smb2, "srvsvc_interface")
 
 smb2.dcerpc_create_context.argtypes = (SMB2.context_ptr, ct.c_char_p, ct.POINTER(SMB2.p_syntax_id_t))
 smb2.dcerpc_create_context.restype = SMB2.dcerpc_context_ptr
+smb2.dcerpc_free_data.argtypes = (SMB2.dcerpc_context_ptr, ct.c_void_p)
+smb2.dcerpc_free_data.restype = None
+smb2.dcerpc_get_error.argtypes = (SMB2.dcerpc_context_ptr,)
+smb2.dcerpc_get_error.restype = ct.c_char_p
+smb2.dcerpc_connect_context_async.argtypes = (SMB2.dcerpc_context_ptr, ct.c_char_p, ct.POINTER(SMB2.p_syntax_id_t), SMB2.dcerpc_cb, ct.c_void_p)
+smb2.dcerpc_connect_context_async.restype = ct.c_int
 smb2.dcerpc_destroy_context.argtypes = (SMB2.dcerpc_context_ptr,)
 smb2.dcerpc_destroy_context.restype = None
 
@@ -1209,52 +1259,57 @@ smb2.dcerpc_get_pdu_payload.restype = ct.c_void_p
 
 smb2.dcerpc_open_async.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_cb, ct.c_void_p)
 smb2.dcerpc_open_async.restype = ct.c_int
-if hasattr(smb2, "dcerpc_bind_async") :
-    smb2.dcerpc_bind_async.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_cb, ct.c_void_p)
-    smb2.dcerpc_bind_async.restype = ct.c_int
-#end if
 smb2.dcerpc_call_async.argtypes = \
     (SMB2.dcerpc_context_ptr, ct.c_int, SMB2.dcerpc_coder, ct.c_void_p,
     SMB2.dcerpc_coder, ct.c_int, SMB2.dcerpc_cb, ct.c_void_p)
 smb2.dcerpc_call_async.restype = ct.c_int
 
 smb2.dcerpc_decode_ptr.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int,
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int,
     ct.c_void_p, SMB2.ptr_type, SMB2.dcerpc_coder)
 smb2.dcerpc_decode_ptr.restype = ct.c_int
 smb2.dcerpc_decode_32.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.dcerpc_decode_32.restype = ct.c_int
 smb2.dcerpc_decode_3264.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.dcerpc_decode_3264.restype = ct.c_int
 smb2.dcerpc_decode_ucs2z.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.dcerpc_decode_ucs2z.restype = ct.c_int
 smb2.dcerpc_encode_ptr.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int,
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int,
     ct.c_void_p, SMB2.ptr_type, SMB2.dcerpc_coder)
 smb2.dcerpc_encode_ptr.restype = ct.c_int
 smb2.dcerpc_encode_ucs2z.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.dcerpc_encode_ucs2z.restype = ct.c_int
 smb2.dcerpc_encode_32.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.dcerpc_encode_32.restype = ct.c_int
 smb2.dcerpc_encode_3264.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_uint64)
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_uint64)
 smb2.dcerpc_encode_3264.restype = ct.c_int
 
 # from smb2/libsmb2-dcerpc-srvsvc.h:
 
 if hasattr(smb2, "srvsvc_netshareenumall_decoder") :
     smb2.srvsvc_netshareenumall_decoder.argtypes = \
-        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
     smb2.srvsvc_netshareenumall_decoder.restype = ct.c_int
     smb2.srvsvc_netshareenumall_encoder.argtypes = \
-        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, ct.POINTER(SMB2.iovec), ct.c_int, ct.c_void_p)
+        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
     smb2.srvsvc_netshareenumall_encoder.restype = ct.c_int
 #end if
+
+smb2.srvsvc_NetShareEnumAll_decoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
+smb2.srvsvc_NetShareEnumAll_encoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
+smb2.srvsvc_NetShareGetInfo_decoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
+smb2.srvsvc_NetShareGetInfo_encoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareEnumAll_encoder.restype = ct.c_int
 
 # from smb2/libsmb2.h:
 
