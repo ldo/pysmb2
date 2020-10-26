@@ -2276,23 +2276,18 @@ class PDU :
             "_awaiting",
         ) # to forestall typos
 
-    _instances = WeakValueDictionary()
-
-    def __new__(celf, _smbobj, _ctx, _req) :
-        self = celf._instances.get(_smbobj)
-        if self == None :
-            self = super().__new__(celf)
-            self._smbobj = _smbobj
-            self._ctx = weak_ref(_ctx)
-            self._req = _req
-            self._queued = False # TBD how to avoid requeuing forgotten/reclaimed PDUs?
-            self._added = []
-            self._awaiting = None
-            celf._instances[_smbobj] = self
-        #end if
-        return \
-            self
-    #end __new__
+    def __init__(self, _smbobj, _ctx, _req) :
+        # Note no _instances WeakValueDictionary because I can’t figure
+        # out how to set _queued flag correctly on recreating PDU wrapper
+        # object. So always calls this for newly-created PDUs, never for
+        # previously-existing ones!
+        self._smbobj = _smbobj
+        self._ctx = weak_ref(_ctx)
+        self._req = _req
+        self._queued = False
+        self._added = []
+        self._awaiting = None
+    #end __init__
 
     def __del__(self) :
         if not self._queued and self._ctx != None and self._smbobj != None :
