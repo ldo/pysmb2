@@ -3464,39 +3464,55 @@ class Context :
 
     # TODO: free_data
 
-    # Methods defined below:
-    #     cmd_negotiate_async_cb
-    #     cmd_negotiate_async
-    #     cmd_session_setup_async_cb
-    #     cmd_session_setup_async
-    #     cmd_tree_connect_async_cb
-    #     cmd_tree_connect_async
-    #     cmd_tree_disconnect_async_cb
-    #     cmd_tree_disconnect_async
-    #     cmd_create_async_cb
-    #     cmd_create_async
-    #     cmd_close_async_cb
-    #     cmd_close_async
-    #     cmd_read_async_cb
-    #     cmd_read_async
-    #     cmd_write_async_cb
-    #     cmd_write_async
-    #     cmd_query_directory_async_cb
-    #     cmd_query_directory_async
-    #     cmd_query_info_async_cb
-    #     cmd_query_info_async
-    #     cmd_set_info_async_cb
-    #     cmd_set_info_async
-    #     cmd_ioctl_async_cb
-    #     cmd_ioctl_async
-    #     cmd_flush_async_cb
-    #     cmd_flush_async
-    #     cmd_echo_async_cb
-    #     cmd_echo_async
-    #     cmd_logoff_async_cb
-    #     cmd_logoff_async
-    #     cmd_flush_async_cb
-    #     cmd_flush_async
+    # Methods defined in def_async_cmds() below:
+    #     cmd_negotiate_async_cb(self, req, cb, cb_data)
+    #     cmd_negotiate_async(self, req)
+    #         req is a negotiate_request, result is a negotiate_reply
+    #     cmd_session_setup_async_cb(self, req, cb, cb_data)
+    #     cmd_session_setup_async(self, req)
+    #         req is a session_setup_request, result is a session_setup_reply
+    #     cmd_tree_connect_async_cb(self, req, cb, cb_data)
+    #     cmd_tree_connect_async(self, req)
+    #         req is a tree_connect_request, result is a tree_connect_reply
+    #     cmd_tree_disconnect_async_cb(self, cb, cb_data)
+    #     cmd_tree_disconnect_async(self)
+    #         req is a tree_disconnect_request, result is None
+    #     cmd_create_async_cb(self, req, cb, cb_data)
+    #     cmd_create_async(self, req)
+    #         req is a create_request, result is a create_reply
+    #     cmd_close_async_cb(self, req, cb, cb_data)
+    #     cmd_close_async(self, req)
+    #         req is a close_request, result is a close_reply
+    #     cmd_read_async_cb(self, req, cb, cb_data)
+    #     cmd_read_async(self, req)
+    #         req is a read_request, result is None
+    #     cmd_write_async_cb(self, req, cb, cb_data)
+    #     cmd_write_async(self, req)
+    #         req is a write_request, result is None
+    #     cmd_query_directory_async_cb(self, req, cb, cb_data)
+    #     cmd_query_directory_async(self, req)
+    #         req is a query_directory_request, result is a query_directory_reply
+    #     cmd_query_info_async_cb(self, req, cb, cb_data)
+    #     cmd_query_info_async(self, req)
+    #         req is a query_info_request, result is a query_info_reply
+    #     cmd_set_info_async_cb(self, req, cb, cb_data)
+    #     cmd_set_info_async(self, req)
+    #         req is a set_info_request, result is None
+    #     cmd_ioctl_async_cb(self, req, cb, cb_data)
+    #     cmd_ioctl_async(self, req)
+    #         req is an ioctl_request, result is an ioctl_reply
+    #     cmd_flush_async_cb(self, req, cb, cb_data)
+    #     cmd_flush_async(self, req)
+    #         req is a flush_request, result is None
+    #     cmd_echo_async_cb(self, cb, cb_data)
+    #     cmd_echo_async(self)
+    #         no req, no result
+    #     cmd_logoff_async_cb(self, cb, cb_data)
+    #     cmd_logoff_async(self)
+    #         no req, no result
+    #     cmd_flush_async_cb(self, req, cb, cb_data)
+    #     cmd_flush_async(self, req)
+    #         no req, no result
 
     def create_dcerpc(self) :
         result = smb2.dcerpc_create_context(self._smbobj)
