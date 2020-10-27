@@ -3778,7 +3778,7 @@ class DCERPCContext :
         ref_cb = SMB2.command_cb(c_cb)
         SMB2OSError.raise_if \
           (
-            smb2.dcerpc_connect_context_async(self._smbobj, c_path, syntax, ref_cb, None),
+            smb2.dcerpc_connect_context_async(self._smbobj, c_path, ct.byref(syntax), ref_cb, None),
             "on connect_context_async"
           )
     #end connect_context_async_cb
@@ -3801,7 +3801,7 @@ class DCERPCContext :
         awaiting = self.loop.create_future()
         ref_awaiting = weak_ref(awaiting)
           # weak ref to avoid circular refs with loop
-        self.connect_context_async_cb(server, connect_done, None)
+        self.connect_context_async_cb(path, syntax, connect_done, None)
         await awaiting
     #end connect_context_async
 
@@ -3819,11 +3819,11 @@ class DCERPCContext :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
-        ref_cb = None
+        ref_cb_req = None
 
         def c_cb(c_self, status, c_command_data, _) :
-            nonlocal ref_cb
-            ref_cb = None
+            nonlocal ref_cb_req
+            ref_cb_req = None # these things can go away now
             self = w_self()
             assert self != None, "parent Context has gone away"
             cb(self, status, c_command_data, cb_data)
@@ -3831,11 +3831,22 @@ class DCERPCContext :
         #end c_cb
 
     #begin call_async_cb
-        ref_cb = SMB2.command_cb(c_cb)
+        ref_cb_req = (SMB2.dcerpc_cb(c_cb), SMB2.dcerpc_coder(encoder), SMB2.dcerpc_coder(decoder))
+          # save pointers to everything that needs to be kept around until call completes,
+          # in a variable referenced from callback
         SMB2OSError.raise_if \
           (
             smb2.dcerpc_call_async
-                (self._smbobj, opnum, encoder, ptr, decoder, decode_size, ref_cb, None),
+              (
+                self._smbobj,
+                opnum,
+                ref_cb_req[1],
+                ptr,
+                ref_cb_req[2],
+                decode_size,
+                ref_cb_req[0],
+                None
+              ),
             "on call_async"
           )
     #end call_async_cb
@@ -3845,21 +3856,24 @@ class DCERPCContext :
 
         w_self = weak_ref(self)
           # to avoid a reference cycle
-        ref_cb_req = None
+        ref_req = None
 
         def c_cb(c_self, status, c_command_data, _) :
-            nonlocal ref_cb_req
-            ref_cb_req = None # these things can go away now
+            nonlocal ref_req
+            ref_req = None # these things can go away now
             self = w_self()
             assert self != None, "parent Context has gone away"
             if status == 0 :
                 c_info = ct.cast(c_command_data, ct.POINTER(SMB2.srvsvc_netsharegetinfo_rep)) \
-                    [0].info[0]
+                    [0].info[0].info1
                 reply = \
                     {
-                        "name" : c_info.name.decode(),
+                        "name" :
+                            (lambda : None, lambda : c_info.name.decode())[c_info.name != None](),
                         "type" : c_info.type,
-                        "comment" : c_info.comment.decode(),
+                        "comment" :
+                            (lambda : None, lambda : c_info.comment.decode())
+                            [c_info.comment != None](),
                     }
             else :
                 reply = None
@@ -3871,7 +3885,7 @@ class DCERPCContext :
         if not isinstance(req, SMB2.srvsvc_netsharegetinfo_req) :
             raise TypeError("req arg must be a srvsvc_netsharegetinfo_req")
         #end if
-        ref_cb_req = (SMB2.command_cb(c_cb), req, req.server, req.share)
+        ref_req = (req, req.server, req.share)
           # save pointers to everything that needs to be kept around until call completes,
           # in a variable referenced from callback
         self.call_async_cb \
@@ -3881,7 +3895,7 @@ class DCERPCContext :
             ptr = ct.byref(req),
             decoder = smb2.srvsvc_NetShareGetInfo_decoder,
             decode_size = ct.sizeof(SMB2.srvsvc_netsharegetinfo_rep),
-            cb = ref_cb_req[0],
+            cb = c_cb,
             cb_data = None
           )
     #end get_info_async_cb
