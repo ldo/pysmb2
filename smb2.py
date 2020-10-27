@@ -3683,6 +3683,7 @@ def def_async_cmds() :
             ("write", False),
             ("query_directory", True),
             ("query_info", True),
+            ("set_info", False), # I don’t think this has any reply info, regardless of what docs say
             ("ioctl", True),
             ("flush", False),
         ) \
@@ -3692,7 +3693,6 @@ def def_async_cmds() :
     for name in \
         (
             "tree_disconnect",
-            "set_info", # I don’t think this has any reply info, regardless of what docs say
             "echo",
             "logoff",
         ) \
