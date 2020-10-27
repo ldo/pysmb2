@@ -1226,8 +1226,8 @@ class SMB2 :
 
     # from smb2/libsmb2-dcerpc-srvsvc.h:
 
-    NETSHAREENUMALL = 15
-    NETSHAREGETINFO = 16
+    SRVSVC_NETSHAREENUMALL = 15
+    SRVSVC_NETSHAREGETINFO = 16
 
     SHARE_TYPE_DISKTREE = 0
     SHARE_TYPE_PRINTQ = 1
@@ -3743,7 +3743,7 @@ class DCERPCContext :
         #end if
     #end __del__
 
-    # TODO: free_data
+    # not implemented: free_data (low-level call made directly where needed)
 
     @property
     def error(self) :
@@ -3776,7 +3776,6 @@ class DCERPCContext :
         #end if
         c_path = path.encode()
         ref_cb = SMB2.command_cb(c_cb)
-        status = smb2.dcerpc_connect_context_async
         SMB2OSError.raise_if \
           (
             smb2.dcerpc_connect_context_async(self._smbobj, c_path, syntax, ref_cb, None),
@@ -3813,8 +3812,103 @@ class DCERPCContext :
     #end smb2_context
 
     # TODO: get_pdu_payload?
+    # TODO: open_async
 
-    # TODO: open_async, call_async
+    def call_async_cb(self, opnum, encoder, ptr, decoder, decode_size, cb, cb_data) :
+        "low-level call which doesn’t hide details of encoding/decoding of request/reply data."
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, c_command_data, cb_data)
+            smb2.dcerpc_free_data(self._smbobj, c_command_data)
+        #end c_cb
+
+    #begin call_async_cb
+        ref_cb = SMB2.command_cb(c_cb)
+        SMB2OSError.raise_if \
+          (
+            smb2.dcerpc_call_async
+                (self._smbobj, opnum, encoder, ptr, decoder, decode_size, ref_cb, None),
+            "on call_async"
+          )
+    #end call_async_cb
+
+    def get_info_async_cb(self, req, cb, cb_data) :
+        "higher-level specialization of call_async_cb to do a get-info call."
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb_req = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb_req
+            ref_cb_req = None # these things can go away now
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            if status == 0 :
+                c_info = ct.cast(c_command_data, ct.POINTER(SMB2.srvsvc_netsharegetinfo_rep)) \
+                    [0].info[0]
+                reply = \
+                    {
+                        "name" : c_info.name.decode(),
+                        "type" : c_info.type,
+                        "comment" : c_info.comment.decode(),
+                    }
+            else :
+                reply = None
+            #end if
+            cb(self, status, reply, cb_data)
+        #end c_cb
+
+    #begin get_info_async_cb
+        if not isinstance(req, SMB2.srvsvc_netsharegetinfo_req) :
+            raise TypeError("req arg must be a srvsvc_netsharegetinfo_req")
+        #end if
+        ref_cb_req = (SMB2.command_cb(c_cb), req, req.server, req.share)
+          # save pointers to everything that needs to be kept around until call completes,
+          # in a variable referenced from callback
+        self.call_async_cb \
+          (
+            opnum = SMB2.SRVSVC_NETSHAREGETINFO,
+            encoder = smb2.srvsvc_NetShareGetInfo_encoder,
+            ptr = ct.byref(req),
+            decoder = smb2.srvsvc_NetShareGetInfo_decoder,
+            decode_size = ct.sizeof(SMB2.srvsvc_netsharegetinfo_rep),
+            cb = ref_cb_req[0],
+            cb_data = None
+          )
+    #end get_info_async_cb
+
+    async def get_info_async(self, req) :
+        "higher-level specialization of call_async_cb to do a get-info call."
+
+        def get_info_done(self, status, reply, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on get_info_async done"))
+                else :
+                    awaiting.set_result(reply)
+                #end if
+            #end if
+        #end get_info_done
+
+    #begin get_info_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.get_info_async_cb(req, get_info_done, None)
+        return \
+            await awaiting
+    #end get_info_async
 
     # TODO: decode_ptr/encode_ptr, decode_32/encode_32, decode_3264/encode_3264,
     #     decode_ucs2z/encode_ucs2z?
