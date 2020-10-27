@@ -1134,11 +1134,11 @@ class SMB2 :
         pass
     srvsvc_netshareenumall_rep._fields_ = \
         [
+            ("status", ct.c_uint32),
             ("level", ct.c_uint32),
             ("ctr", ct.POINTER(srvsvc_netsharectr)),
             ("total_entries", ct.c_uint32),
             ("resume_handle", ct.c_uint32),
-            ("status", ct.c_uint32),
         ]
     #end srvsvc_netshareenumall_rep
 
@@ -1177,6 +1177,11 @@ class SMB2 :
     #end srvsvc_rep
 
     # from smb2/libsmb2-dcerpc.h:
+
+    DCERPC_DR_BIG_ENDIAN = 0x00
+    DCERPC_DR_LITTLE_ENDIAN = 0x10
+    DCERPC_DR_ASCII = 0x00
+    DCERPC_DR_EBCDIC = 0x01
 
     dcerpc_context_ptr = ct.c_void_p
     dcerpc_pdu_ptr = ct.c_void_p
@@ -1542,6 +1547,21 @@ smb2.smb2_cmd_logoff_async.restype = SMB2.pdu_ptr
 smb2.smb2_cmd_flush_async.argtypes = \
     (SMB2.context_ptr, ct.POINTER(SMB2.flush_request), SMB2.command_cb, ct.c_void_p)
 smb2.smb2_cmd_flush_async.restype = SMB2.pdu_ptr
+
+# from smb2/libsmb2-dcerpc-srvsvc.h:
+
+smb2.srvsvc_NetShareEnumAll_decoder.argtypes = \
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
+smb2.srvsvc_NetShareEnumAll_encoder.argtypes = \
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareEnumAll_encoder.restype = ct.c_int
+smb2.srvsvc_NetShareGetInfo_decoder.argtypes = \
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareGetInfo_decoder.restype = ct.c_int
+smb2.srvsvc_NetShareGetInfo_encoder.argtypes = \
+    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
 
 #+
 # Higher-level stuff begins here
