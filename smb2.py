@@ -2531,6 +2531,8 @@ class CmdSequence :
         #end for
         first.queue()
         self._queued = True
+        return \
+            self
     #end queue
 
     def __getitem__(self, key) :
