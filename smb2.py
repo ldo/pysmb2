@@ -1246,7 +1246,7 @@ class SMB2 :
 
 srvsvc_interface = SMB2.p_syntax_id_t.in_dll(smb2, "srvsvc_interface")
 
-smb2.dcerpc_create_context.argtypes = (SMB2.context_ptr, ct.c_char_p, ct.POINTER(SMB2.p_syntax_id_t))
+smb2.dcerpc_create_context.argtypes = (SMB2.context_ptr,)
 smb2.dcerpc_create_context.restype = SMB2.dcerpc_context_ptr
 smb2.dcerpc_free_data.argtypes = (SMB2.dcerpc_context_ptr, ct.c_void_p)
 smb2.dcerpc_free_data.restype = None
@@ -1297,15 +1297,6 @@ smb2.dcerpc_encode_3264.argtypes = \
 smb2.dcerpc_encode_3264.restype = ct.c_int
 
 # from smb2/libsmb2-dcerpc-srvsvc.h:
-
-if hasattr(smb2, "srvsvc_netshareenumall_decoder") :
-    smb2.srvsvc_netshareenumall_decoder.argtypes = \
-        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-    smb2.srvsvc_netshareenumall_decoder.restype = ct.c_int
-    smb2.srvsvc_netshareenumall_encoder.argtypes = \
-        (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-    smb2.srvsvc_netshareenumall_encoder.restype = ct.c_int
-#end if
 
 smb2.srvsvc_NetShareEnumAll_decoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
@@ -1580,8 +1571,6 @@ def nterror_to_errno(n) :
     return \
         smb2.nterror_to_errno(n)
 #end nterror_to_errno
-
-# TODO: dcerpc stuff
 
 class FileID :
 
@@ -3473,6 +3462,15 @@ class Context :
           )
     #end echo
 
+    def create_dcerpc(self) :
+        result = smb2.dcerpc_create_context(self._smbobj)
+        if result == None :
+            self.raise_error("creating DCERPC context")
+        #end if
+        return \
+            DCERPCContext(result)
+    #end create_dcerpc
+
 #end Context
 def def_async_cmds() :
 
@@ -3662,13 +3660,61 @@ def def_async_cmds() :
 def_async_cmds()
 del def_async_cmds
 
+class DCERPCContext :
+    "a wrapper for a dcerpc_context object. Do not instantiate directly; get" \
+    " from create or Context.createdcerpc methods."
+
+    __slots__ = ("_smbobj", "__weakref__", "loop") # to forestall typos
+
+    _instances = WeakValueDictionary()
+
+    def __new__(celf, _smbobj) :
+        self = celf._instances.get(_smbobj)
+        if self == None :
+            self = super().__new__(celf)
+            self._smbobj = _smbobj
+            self.loop = None
+            celf._instances[_smbobj] = self
+        #end if
+        return \
+            self
+    #end __new__
+
+    @classmethod
+    def create(celf, smb) :
+        if not isinstance(smb, Context) :
+            raise TypeError("smb is not an SMB Context")
+        #end if
+        result = smb2.dcerpc_create_context(smb._smbobj)
+        if result == None :
+            smb.raise_error("creating DCERPC context")
+        #end if
+        return \
+            celf(result)
+    #end create
+
+    def __del__(self) :
+        if self._smbobj != None :
+            smb2.dcerpc_destroy_context(self._smbobj)
+            self._smbobj = None
+        #end if
+    #end __del__
+
+    # TODO: free_data, get_error, connect_context_async, destroy_context
+    # TODO: get_smb2_context, get_pdu_payload
+    # TODO: open_async, call_async
+    # TODO: decode_ptr/encode_ptr, decode_32/encode_32, decode_3264/encode_3264, decode_ucs2z/encode_ucs2z
+    # TODO: NetShareEnumAll/GetInfo_decoder/encoder
+
+#end DCERPCContext
+
 #+
 # Overall
 #-
 
 def _atexit() :
     # disable all __del__ methods at process termination to avoid segfaults
-    for cłass in URL, PDU, Dir, Context :
+    for cłass in URL, PDU, Dir, Context, DCERPCContext :
         delattr(cłass, "__del__")
     #end for
 #end _atexit
