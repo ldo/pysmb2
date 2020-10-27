@@ -3504,7 +3504,7 @@ class Context :
             self.raise_error("creating DCERPC context")
         #end if
         return \
-            DCERPCContext(result)
+            DCERPCContext(result, self.loop)
     #end create_dcerpc
 
 #end Context
@@ -3711,12 +3711,12 @@ class DCERPCContext :
 
     _instances = WeakValueDictionary()
 
-    def __new__(celf, _smbobj) :
+    def __new__(celf, _smbobj, loop) :
         self = celf._instances.get(_smbobj)
         if self == None :
             self = super().__new__(celf)
             self._smbobj = _smbobj
-            self.loop = None
+            self.loop = loop
             celf._instances[_smbobj] = self
         #end if
         return \
@@ -3733,7 +3733,7 @@ class DCERPCContext :
             smb.raise_error("creating DCERPC context")
         #end if
         return \
-            celf(result)
+            celf(result, smb.loop)
     #end create
 
     def __del__(self) :
@@ -3743,11 +3743,82 @@ class DCERPCContext :
         #end if
     #end __del__
 
-    # TODO: free_data, get_error, connect_context_async, destroy_context
-    # TODO: get_smb2_context, get_pdu_payload
+    # TODO: free_data
+
+    @property
+    def error(self) :
+        "returns the message text for the last error on this context."
+        result = smb2.dcerpc_get_error(self._smbobj)
+        if result != None :
+            result = result.decode()
+        #end if
+        return \
+            result
+    #end error
+
+    def connect_context_async_cb(self, path, syntax, cb, cb_data) :
+
+        w_self = weak_ref(self)
+          # to avoid a reference cycle
+        ref_cb = None
+
+        def c_cb(c_self, status, c_command_data, _) :
+            nonlocal ref_cb
+            ref_cb = None
+            self = w_self()
+            assert self != None, "parent Context has gone away"
+            cb(self, status, cb_data)
+        #end c_cb
+
+    #begin connect_context_async_cb
+        if not isinstance(syntax, SMB2.p_syntax_id_t) :
+            raise TypeError("syntax is not a SMB2.p_syntax_id_t")
+        #end if
+        c_path = path.encode()
+        ref_cb = SMB2.command_cb(c_cb)
+        status = smb2.dcerpc_connect_context_async
+        SMB2OSError.raise_if \
+          (
+            smb2.dcerpc_connect_context_async(self._smbobj, c_path, syntax, ref_cb, None),
+            "on connect_context_async"
+          )
+    #end connect_context_async_cb
+
+    async def connect_context_async(self, path, syntax) :
+
+        def connect_done(self, status, _) :
+            awaiting = ref_awaiting()
+            if awaiting != None :
+                if status < 0 :
+                    awaiting.set_exception(SMB2OSError(status, "on connect_context_async done"))
+                else :
+                    awaiting.set_result(None)
+                #end if
+            #end if
+        #end connect_done
+
+    #begin connect_context_async
+        assert self.loop != None, "no event loop to attach coroutines to"
+        awaiting = self.loop.create_future()
+        ref_awaiting = weak_ref(awaiting)
+          # weak ref to avoid circular refs with loop
+        self.connect_context_async_cb(server, connect_done, None)
+        await awaiting
+    #end connect_context_async
+
+    @property
+    def smb2_context(self) :
+        return \
+            Context(smb2.dcerpc_get_smb2_context(self._smbobj))
+    #end smb2_context
+
+    # TODO: get_pdu_payload?
+
     # TODO: open_async, call_async
-    # TODO: decode_ptr/encode_ptr, decode_32/encode_32, decode_3264/encode_3264, decode_ucs2z/encode_ucs2z
-    # TODO: NetShareEnumAll/GetInfo_decoder/encoder
+
+    # TODO: decode_ptr/encode_ptr, decode_32/encode_32, decode_3264/encode_3264,
+    #     decode_ucs2z/encode_ucs2z?
+    # TODO: NetShareEnumAll/GetInfo_decoder/encoder?
 
 #end DCERPCContext
 
