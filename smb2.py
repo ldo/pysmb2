@@ -11,12 +11,16 @@ import ctypes as ct
 from weakref import \
     ref as weak_ref, \
     WeakValueDictionary
+from collections import \
+    namedtuple
 import array
 import atexit
 import select
 import asyncio
 
 smb2 = ct.cdll.LoadLibrary("libsmb2.so.1")
+
+timeval_t = namedtuple("timeval_t", ("tv_sec", "tv_usec"))
 
 class SMB2 :
     "useful definitions adapted from the smb2 include files. You will need" \
@@ -109,11 +113,18 @@ class SMB2 :
     # from smb2/smb2.h:
 
     class c_timeval_t(ct.Structure) :
+
         _fields_ = \
             [
                 ("tv_sec", ct.c_uint32),
                 ("tv_usec", ct.c_uint32),
             ]
+
+        @property
+        def timeval(self) :
+            return timeval_t(self.tv_sec, self.tv_usec)
+        #end timeval
+
     #end c_timeval_t
 
     ERROR_REPLY_SIZE = 9
@@ -1238,6 +1249,89 @@ class SMB2 :
 
 #end SMB2
 
+struct_classes = []
+
+def def_struct_class(name, ctname, specialmap = None) :
+
+    ctstruct = getattr(SMB2, ctname)
+
+    class result_class :
+
+        def __init__(self) :
+            self._ctx = None
+            self._smbobj = None
+        #end __init__
+
+        def __del__(self) :
+            if self._smbobj != None :
+                ctx = self._ctx()
+                if ctx != None and ctx._smbobj != None :
+                    smb2.smb2_free_data(ctx._smbobj, self._smbobj)
+                #end if
+                self._smbobj = None
+            #end if
+        #end __del__
+
+        @classmethod
+        def from_ct(celf, r) :
+            result = celf()
+            for fieldname, cttype in ctstruct._fields_ :
+                value = getattr(r, fieldname)
+                if specialmap != None and fieldname in specialmap :
+                    value = specialmap[fieldname](value)
+                #end if
+                setattr(result, fieldname, value)
+            #end for
+            return \
+                result
+        #end from_ct
+
+        @classmethod
+        def from_ct_ptr(celf, ctx, rp) :
+            result = celf.from_ct(rp.contents)
+            result._ctx = weak_ref(ctx)
+            result._smbobj = rp
+            return \
+                result
+        #end from_ct_ptr
+
+        def __getitem__(self, i) :
+            "allows the object to be coerced to a tuple."
+            return \
+                getattr(self, ctstruct._fields_[i][0])
+        #end __getitem__
+
+        def __repr__(self) :
+            return \
+                (
+                    "%s(%s)"
+                %
+                    (
+                        name,
+                        ", ".join
+                          (
+                            "%s = %s" % (field[0], getattr(self, field[0]))
+                            for field in ctstruct._fields_
+                          ),
+                    )
+                )
+        #end __repr__
+
+    #end result_class
+
+#begin def_struct_class
+    result_class.__name__ = name
+    result_class.__doc__ = \
+        (
+            "representation of a libsmb2 %s structure."
+        %
+            ctname
+        )
+    struct_classes.append(result_class)
+    return \
+        result_class
+#end def_struct_class
+
 #+
 # Routine arg/result types
 #-
@@ -1571,6 +1665,35 @@ def nterror_to_errno(n) :
     return \
         smb2.nterror_to_errno(n)
 #end nterror_to_errno
+
+FileBasicInfo = def_struct_class \
+  (
+    name = "FileBasicInfo",
+    ctname = "file_basic_info",
+    specialmap =
+        {
+            "creation_time" : lambda t : t.timeval,
+            "last_access_time" : lambda t : t.timeval,
+            "last_write_time" : lambda t : t.timeval,
+            "change_time" : lambda t : t.timeval,
+        }
+  )
+FileStandardInfo = def_struct_class \
+  (
+    name = "FileStandardInfo",
+    ctname = "file_standard_info"
+  )
+FileAllInfo = def_struct_class \
+  (
+    name = "FileAllInfo",
+    ctname = "file_all_info",
+    specialmap =
+        {
+            "basic" : lambda i : FileBasicInfo.from_ct(i),
+            "standard" : lambda i : FileStandardInfo.from_ct(i),
+            # "name_information"?
+        }
+  )
 
 class FileID :
 
@@ -3533,7 +3656,13 @@ def def_async_cmds() :
     # returns a future which can be awaited to retrieve the completion
     # result (or an exception if there was an error).
 
-    def def_cmd_async1(name, has_reply) :
+    def process_query_info_reply(self, reply) :
+        result = ct.cast(reply.output_buffer, ct.POINTER(SMB2.file_all_info))
+        return \
+            FileAllInfo.from_ct_ptr(self, result)
+    #end process_query_info_reply
+
+    def def_cmd_async1(name, has_reply, process_reply) :
 
         routine = getattr(smb2, "smb2_cmd_%s_async" % name)
         reqtype = getattr(SMB2, "%s_request" % name)
@@ -3587,6 +3716,9 @@ def def_async_cmds() :
                         if status != 0 :
                             awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
                         else :
+                            if process_reply != None :
+                                reply = process_reply(self, reply)
+                            #end if
                             awaiting.set_result(reply)
                         #end if
                     #end if
@@ -3674,7 +3806,8 @@ def def_async_cmds() :
             awaiting = self.loop.create_future()
             ref_awaiting = weak_ref(awaiting)
               # weak ref to avoid circular refs with loop
-            pdu = getattr(self, methname_cb)(cmd_done, None)
+            #pdu = getattr(self, methname_cb)(cmd_done, None)
+            pdu = cmd_async_cb(self, cmd_done, None)
             pdu._awaiting = awaiting
             return \
                 pdu
@@ -3688,23 +3821,24 @@ def def_async_cmds() :
     #end def_cmd_async0
 
 #begin def_async_cmds
-    for name, has_reply in \
+    for name, has_reply, process_reply in \
         (
-            ("negotiate", True),
-            ("session_setup", True),
-            ("tree_connect", True),
-            ("create", True),
-            ("close", True),
-            ("read", False),
-            ("write", False),
-            ("query_directory", True),
-            ("query_info", True),
-            ("set_info", False), # I don’t think this has any reply info, regardless of what docs say
-            ("ioctl", True),
-            ("flush", False),
+            ("negotiate", True, None),
+            ("session_setup", True, None),
+            ("tree_connect", True, None),
+            ("create", True, None),
+            ("close", True, None),
+            ("read", False, None),
+            ("write", False, None),
+            ("query_directory", True, None),
+            ("query_info", True, process_query_info_reply),
+            ("set_info", False, None),
+              # I don’t think this has any reply info, regardless of what docs say
+            ("ioctl", True, None),
+            ("flush", False, None),
         ) \
     :
-        def_cmd_async1(name, has_reply)
+        def_cmd_async1(name, has_reply, process_reply)
     #end for
     for name in \
         (
@@ -3952,9 +4086,11 @@ class DCERPCContext :
 
 def _atexit() :
     # disable all __del__ methods at process termination to avoid segfaults
-    for cłass in URL, PDU, Dir, Context, DCERPCContext :
+    for cłass in [URL, PDU, Dir, Context, DCERPCContext] + struct_classes :
         delattr(cłass, "__del__")
     #end for
 #end _atexit
 atexit.register(_atexit)
 del _atexit
+
+del def_struct_class # my work is done
