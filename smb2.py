@@ -3462,6 +3462,42 @@ class Context :
           )
     #end echo
 
+    # TODO: free_data
+
+    # Methods defined below:
+    #     cmd_negotiate_async_cb
+    #     cmd_negotiate_async
+    #     cmd_session_setup_async_cb
+    #     cmd_session_setup_async
+    #     cmd_tree_connect_async_cb
+    #     cmd_tree_connect_async
+    #     cmd_tree_disconnect_async_cb
+    #     cmd_tree_disconnect_async
+    #     cmd_create_async_cb
+    #     cmd_create_async
+    #     cmd_close_async_cb
+    #     cmd_close_async
+    #     cmd_read_async_cb
+    #     cmd_read_async
+    #     cmd_write_async_cb
+    #     cmd_write_async
+    #     cmd_query_directory_async_cb
+    #     cmd_query_directory_async
+    #     cmd_query_info_async_cb
+    #     cmd_query_info_async
+    #     cmd_set_info_async_cb
+    #     cmd_set_info_async
+    #     cmd_ioctl_async_cb
+    #     cmd_ioctl_async
+    #     cmd_flush_async_cb
+    #     cmd_flush_async
+    #     cmd_echo_async_cb
+    #     cmd_echo_async
+    #     cmd_logoff_async_cb
+    #     cmd_logoff_async
+    #     cmd_flush_async_cb
+    #     cmd_flush_async
+
     def create_dcerpc(self) :
         result = smb2.dcerpc_create_context(self._smbobj)
         if result == None :
@@ -3473,6 +3509,13 @@ class Context :
 
 #end Context
 def def_async_cmds() :
+    # Common routine for defining a whole bunch of very similar methods.
+    # Each one is provided in two forms: cmd_xxx_async_cb, and
+    # cmd_xxx_async. The _cb form takes a user-specified callback
+    # which is invoked with the completion status and possibly other
+    # info when the command completes, while the one without _cb
+    # returns a future which can be awaited to retrieve the completion
+    # result (or an exception if there was an error).
 
     def def_cmd_async1(name, has_reply) :
 
