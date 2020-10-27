@@ -3828,23 +3828,24 @@ def def_async_cmds() :
             ("tree_connect", True, None),
             ("create", True, None),
             ("close", True, None),
-            ("read", False, None),
-            ("write", False, None),
+            ("read", True, None),
+            ("write", True, None),
             ("query_directory", True, None),
             ("query_info", True, process_query_info_reply),
             ("set_info", False, None),
               # I don’t think this has any reply info, regardless of what docs say
+              # yet SET_INFO_REPLY_SIZE is defined
             ("ioctl", True, None),
-            ("flush", False, None),
+            ("flush", False, None), # yet FLUSH_REPLY_SIZE is defined
         ) \
     :
         def_cmd_async1(name, has_reply, process_reply)
     #end for
     for name in \
         (
-            "tree_disconnect",
-            "echo",
-            "logoff",
+            "tree_disconnect", # yet TREE_DISCONNECT_REQUEST/REPLY_SIZE are defined
+            "echo", # yet ECHO_REQUEST/REPLY_SIZE are defined
+            "logoff", # yet LOGOFF_REQUEST/REPLY_SIZE are defined
         ) \
     :
         def_cmd_async0(name)
