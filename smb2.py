@@ -2469,6 +2469,86 @@ class PDU :
 
 #end PDU
 
+class CmdSequence :
+    "Convenience wrapper for collecting a sequence of PDUs, queueing them," \
+    " and selectively awaiting the completion of any or all of them. Do not" \
+    " instantiate directly; get from create() or Context.new_cmd_seq().\n" \
+    "\n" \
+    "You add commands to the sequence by making cmd_xxx_async calls directly" \
+    " on this object, instead of the parent Context. The calls take an extra" \
+    " initial argument which is a unique key to identify that step in the" \
+    " sequence. e.g.\n" \
+    "\n" \
+    "    seq = ctx.new_cmd_seq()\n" \
+    "    seq.cmd_create_async(\"create\", «create_parms»)\n" \
+    "    seq.cmd_query_info_async(\"query_info\", «query_parms»)\n" \
+    "    seq.cmd_close_async(\"close\", «close_parms»)\n" \
+    "    seq.queue()\n" \
+    "\n" \
+    "and then you can retrieve the info from the query step with\n" \
+    "\n" \
+    "    info = await seq[\"query_info\"]\n" \
+    "\n" \
+    "and await the completion of the entire sequence with\n" \
+    "\n" \
+    "    await seq\n"
+
+    __slots__ = \
+        (
+            "_ctx",
+            "__weakref__",
+            "_pdus",
+            "_pdus_by_key",
+            "_queued",
+        )
+
+    def __init__(self, ctx) :
+        self._ctx = ctx
+        self._queued = False
+        self._pdus = []
+        self._pdus_by_key = {}
+    #end __init__
+
+    @classmethod
+    def create(celf, ctx) :
+        if not isinstance(ctx, Context) :
+            raise TypeError("ctx is not a Context")
+        #end if
+        return \
+            celf(ctx)
+    #end create
+
+    def queue(self) :
+        assert not self._queued, "PDU already queued"
+        assert len(self._pdus) != 0, "no PDUs added to queue"
+        first = None
+        for pdu in self._pdus :
+            if first == None :
+                first = pdu
+            else :
+                first.add_compound(pdu)
+            #end if
+        #end for
+        first.queue()
+        self._queued = True
+    #end queue
+
+    def __getitem__(self, key) :
+        return \
+            self._pdus_by_key[key]
+    #end __getitem__
+
+    def __await__(self) :
+        "awaits completion of entire sequence."
+        if not self._queued or len(self._pdus) == 0 :
+            raise asyncio.InvalidStateError("PDU sequence not in awaitable state")
+        #end if
+        return \
+            self._pdus[-1].__await__()
+    #end __await__
+
+#end CmdSequence
+
 class Context :
     "a wrapper for an smb2_context_ptr object. Do not instantiate directly;" \
     " use the create method."
@@ -3637,6 +3717,11 @@ class Context :
     #     cmd_flush_async(self, req)
     #         no req, no result
 
+    def new_cmd_seq(self) :
+        return \
+            CmdSequence(self)
+    #end new_cmd_seq
+
     def create_dcerpc(self) :
         result = smb2.dcerpc_create_context(self._smbobj)
         if result == None :
@@ -3751,11 +3836,22 @@ def def_async_cmds() :
                 pdu
         #end cmd_async
 
+        def cmdseq_async(self, key, req) :
+            assert key not in self._pdus_by_key, "duplicate PDU with key “%s”" % key
+            entry = cmd_async(self._ctx, req)
+            self._pdus.append(entry)
+            self._pdus_by_key[key] = entry
+            return \
+                self
+        #end cmdseq_async
+
     #begin def_cmd_async1
         cmd_async_cb.__name__ = methname_cb
         cmd_async.__name__ = methname
         setattr(Context, methname_cb, cmd_async_cb)
         setattr(Context, methname, cmd_async)
+        cmdseq_async.__name__ = methname
+        setattr(CmdSequence, methname, cmdseq_async)
     #end def_cmd_async1
 
     def def_cmd_async0(name) :
@@ -3813,11 +3909,22 @@ def def_async_cmds() :
                 pdu
         #end cmd_async
 
+        def cmdseq_async(self, key) :
+            assert key not in self._pdus_by_key, "duplicate PDU with key “%s”" % key
+            entry = cmd_async(self._ctx)
+            self._pdus.append(entry)
+            self._pdus_by_key[key] = entry
+            return \
+                self
+        #end cmdseq_async
+
     #begin def_cmd_async0
         cmd_async_cb.__name__ = methname_cb
         cmd_async.__name__ = methname
         setattr(Context, methname_cb, cmd_async_cb)
         setattr(Context, methname, cmd_async)
+        cmdseq_async.__name__ = methname
+        setattr(CmdSequence, methname, cmdseq_async)
     #end def_cmd_async0
 
 #begin def_async_cmds
