@@ -3846,6 +3846,9 @@ def def_async_cmds() :
                 #end cmd_done
 
             #begin cmd_async
+                if not hasattr(reply_type, "_cttype") :
+                    raise TypeError("reply_type is not an smb2 struct wrapper")
+                #end if
                 assert self.loop != None, "no event loop to attach coroutines to"
                 awaiting = self.loop.create_future()
                 ref_awaiting = weak_ref(awaiting)
@@ -3858,6 +3861,9 @@ def def_async_cmds() :
             #end cmd_async
 
             def cmdseq_async(self, key, req, reply_type) :
+                if not hasattr(reply_type, "_cttype") :
+                    raise TypeError("reply_type is not an smb2 struct wrapper")
+                #end if
                 assert key not in self._pdus_by_key, "duplicate PDU with key “%s”" % key
                 entry = cmd_async(self._ctx, req, reply_type)
                 self._pdus.append(entry)
