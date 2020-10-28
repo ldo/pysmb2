@@ -3744,9 +3744,8 @@ def def_async_cmds() :
     # result (or an exception if there was an error).
 
     def process_query_info_reply(self, reply) :
-        result = ct.cast(reply.output_buffer, ct.POINTER(SMB2.file_all_info))
         return \
-            FileAllInfo.from_ct_ptr(self, result)
+            reply.output_buffer
     #end process_query_info_reply
 
     def def_cmd_async1(name, has_reply, process_reply) :
