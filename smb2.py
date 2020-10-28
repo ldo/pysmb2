@@ -3765,6 +3765,9 @@ def def_async_cmds() :
     # result (or an exception if there was an error).
 
     def process_query_info_reply(self, reply) :
+        # I just return the pointer to the info buffer; it is up to
+        # caller to interpret its contents, and dispose of it when
+        # finished.
         return \
             reply.output_buffer
     #end process_query_info_reply
