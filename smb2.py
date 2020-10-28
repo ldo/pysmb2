@@ -1252,11 +1252,15 @@ class SMB2 :
 _struct_classes = []
 
 def def_struct_class(name, ctname, specialmap = None) :
+    # creates a higher-level wrapper around a ctypes struct.
+    # Provides automatic decoding of structured fields where appropriate,
+    # and also freeing of associated dynamic buffer returned from
+    # a libsmb2 call.
 
     ctstruct = getattr(SMB2, ctname)
 
     class result_class :
-        _cttype = ctstruct
+        _cttype = ctstruct # for caller use
 
         def __init__(self) :
             self._ctx = None
