@@ -3776,12 +3776,13 @@ def def_async_cmds() :
     # returns a future which can be awaited to retrieve the completion
     # result (or an exception if there was an error).
 
-    def process_query_info_reply(self, reply) :
-        # I just return the pointer to the info buffer; it is up to
-        # caller to interpret its contents, and dispose of it when
-        # finished.
+    def process_query_info_reply(self, reply, reply_type) :
         return \
-            reply.output_buffer
+            reply_type.from_ct_ptr \
+              (
+                self,
+                ct.cast(reply.output_buffer, ct.POINTER(reply_type._cttype))
+              )
     #end process_query_info_reply
 
     def def_cmd_async1(name, has_reply, process_reply) :
@@ -3828,44 +3829,82 @@ def def_async_cmds() :
                 PDU(c_pdu, self, req)
         #end cmd_async_cb
 
-        def cmd_async(self, req) :
+        if process_reply != None :
+            assert has_reply
 
-            def cmd_done(self, status, reply, _) :
-                awaiting = ref_awaiting()
-                if awaiting != None :
-                    if status != 0 :
-                        awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
-                    elif has_reply :
-                        if process_reply != None :
-                            reply = process_reply(self, reply)
+            def cmd_async(self, req, reply_type) :
+
+                def cmd_done(self, status, reply, _) :
+                    awaiting = ref_awaiting()
+                    if awaiting != None :
+                        if status != 0 :
+                            awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
+                        else :
+                            awaiting.set_result(process_reply(self, reply, reply_type))
                         #end if
-                        awaiting.set_result(reply)
-                    else :
-                        awaiting.set_result(None)
                     #end if
-                #end if
-            #end cmd_done
+                #end cmd_done
 
-        #begin cmd_async
-            assert self.loop != None, "no event loop to attach coroutines to"
-            awaiting = self.loop.create_future()
-            ref_awaiting = weak_ref(awaiting)
-              # weak ref to avoid circular refs with loop
-            #pdu = getattr(self, methname_cb)(req, cmd_done, None)
-            pdu = cmd_async_cb(self, req, cmd_done, None)
-            pdu._awaiting = awaiting
-            return \
-                pdu
-        #end cmd_async
+            #begin cmd_async
+                assert self.loop != None, "no event loop to attach coroutines to"
+                awaiting = self.loop.create_future()
+                ref_awaiting = weak_ref(awaiting)
+                  # weak ref to avoid circular refs with loop
+                #pdu = getattr(self, methname_cb)(req, cmd_done, None)
+                pdu = cmd_async_cb(self, req, cmd_done, None)
+                pdu._awaiting = awaiting
+                return \
+                    pdu
+            #end cmd_async
 
-        def cmdseq_async(self, key, req) :
-            assert key not in self._pdus_by_key, "duplicate PDU with key “%s”" % key
-            entry = cmd_async(self._ctx, req)
-            self._pdus.append(entry)
-            self._pdus_by_key[key] = entry
-            return \
-                self
-        #end cmdseq_async
+            def cmdseq_async(self, key, req, reply_type) :
+                assert key not in self._pdus_by_key, "duplicate PDU with key “%s”" % key
+                entry = cmd_async(self._ctx, req, reply_type)
+                self._pdus.append(entry)
+                self._pdus_by_key[key] = entry
+                return \
+                    self
+            #end cmdseq_async
+
+        else :
+
+            def cmd_async(self, req) :
+
+                def cmd_done(self, status, reply, _) :
+                    awaiting = ref_awaiting()
+                    if awaiting != None :
+                        if status != 0 :
+                            awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
+                        elif has_reply :
+                            awaiting.set_result(reply)
+                        else :
+                            awaiting.set_result(None)
+                        #end if
+                    #end if
+                #end cmd_done
+
+            #begin cmd_async
+                assert self.loop != None, "no event loop to attach coroutines to"
+                awaiting = self.loop.create_future()
+                ref_awaiting = weak_ref(awaiting)
+                  # weak ref to avoid circular refs with loop
+                #pdu = getattr(self, methname_cb)(req, cmd_done, None)
+                pdu = cmd_async_cb(self, req, cmd_done, None)
+                pdu._awaiting = awaiting
+                return \
+                    pdu
+            #end cmd_async
+
+            def cmdseq_async(self, key, req) :
+                assert key not in self._pdus_by_key, "duplicate PDU with key “%s”" % key
+                entry = cmd_async(self._ctx, req)
+                self._pdus.append(entry)
+                self._pdus_by_key[key] = entry
+                return \
+                    self
+            #end cmdseq_async
+
+        #end if
 
     #begin def_cmd_async1
         cmd_async_cb.__name__ = methname_cb
