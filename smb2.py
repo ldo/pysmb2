@@ -1256,6 +1256,7 @@ def def_struct_class(name, ctname, specialmap = None) :
     ctstruct = getattr(SMB2, ctname)
 
     class result_class :
+        _cttype = ctstruct
 
         def __init__(self) :
             self._ctx = None
@@ -1693,6 +1694,26 @@ FileAllInfo = def_struct_class \
             "standard" : lambda i : FileStandardInfo.from_ct(i),
             # "name_information"?
         }
+  )
+FileFSSizeInfo = def_struct_class \
+  (
+    name = "FileFSSizeInfo",
+    ctname = "file_fs_size_info"
+  )
+FileFSDeviceInfo = def_struct_class \
+  (
+    name = "FileFSDeviceInfo",
+    ctname = "file_fs_device_info"
+  )
+FileFSControlInfo = def_struct_class \
+  (
+    name = "FileFSControlInfo",
+    ctname = "file_fs_control_info"
+  )
+FileFSFullSizeInfo = def_struct_class \
+  (
+    name = "FileFSFullSizeInfo",
+    ctname = "file_fs_full_size_info"
   )
 
 class FileID :
