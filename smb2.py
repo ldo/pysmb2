@@ -1667,6 +1667,15 @@ def nterror_to_errno(n) :
         smb2.nterror_to_errno(n)
 #end nterror_to_errno
 
+Dirent = def_struct_class \
+  (
+    name = "Dirent",
+    ctname = "dirent",
+    specialmap =
+        {
+            "name" : lambda n : n.decode(),
+        }
+  )
 FileBasicInfo = def_struct_class \
   (
     name = "FileBasicInfo",
@@ -2384,9 +2393,7 @@ class Dir :
     def read(self) :
         c_dirent = smb2.smb2_readdir(self._parent._smbobj, self._smbobj)
         if c_dirent != None and ct.cast(c_dirent, ct.c_void_p).value != None :
-            dirent = {"name" : c_dirent[0].name.decode()}
-            c_st = c_dirent[0].st
-            dirent["st"] = dict((f[0], getattr(c_st, f[0])) for f in SMB2.stat_64._fields_)
+            dirent = Dirent.from_ct(c_dirent[0])
         else :
             dirent = None
         #end if
