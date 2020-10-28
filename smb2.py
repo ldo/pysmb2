@@ -1249,7 +1249,7 @@ class SMB2 :
 
 #end SMB2
 
-struct_classes = []
+_struct_classes = []
 
 def def_struct_class(name, ctname, specialmap = None) :
 
@@ -1328,7 +1328,7 @@ def def_struct_class(name, ctname, specialmap = None) :
         %
             ctname
         )
-    struct_classes.append(result_class)
+    _struct_classes.append(result_class)
     return \
         result_class
 #end def_struct_class
@@ -4226,7 +4226,7 @@ class DCERPCContext :
 
 def _atexit() :
     # disable all __del__ methods at process termination to avoid segfaults
-    for cłass in [URL, PDU, Dir, Context, DCERPCContext] + struct_classes :
+    for cłass in [URL, PDU, Dir, Context, DCERPCContext] + _struct_classes :
         delattr(cłass, "__del__")
     #end for
 #end _atexit
