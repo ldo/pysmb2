@@ -1779,7 +1779,7 @@ class File :
             ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, cb_data)
+            cb(ctx, status, c_command_data, cb_data)
         #end c_cb
 
     #begin close_async_cb
@@ -1795,13 +1795,13 @@ class File :
                 "on close_async"
               )
         else :
-            cb(self._ctx(), 0, cb_data)
+            cb(self._ctx(), 0, None, cb_data)
         #end if
     #end close_async_cb
 
     async def close_async(self) :
 
-        def close_done(ctx, status, _) :
+        def close_done(ctx, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
@@ -1849,7 +1849,7 @@ class File :
             ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, cb_data)
+            cb(ctx, status, c_command_data, cb_data)
         #end c_cb
 
     #begin fsync_async_cb
@@ -1865,7 +1865,7 @@ class File :
 
     async def fsync_async(self) :
 
-        def fsync_done(ctx, status, _) :
+        def fsync_done(ctx, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
@@ -2056,7 +2056,7 @@ class File :
             ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, cb_data)
+            cb(ctx, status, c_command_data, cb_data)
         #end c_cb
 
     #begin write_async_cb
@@ -2095,12 +2095,13 @@ class File :
 
     async def write_async(self, *, buf, nrbytes = None, offset = None) :
 
-        def write_done(ctx, status, _) :
+        def write_done(ctx, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
                     awaiting.set_exception(SMB2OSError(status, "on write_async done"))
                 else :
+                    # status >= 0 is nr bytes written
                     awaiting.set_result(status)
                 #end if
             #end if
@@ -2241,7 +2242,7 @@ class File :
             ref_cb = None
             ctx = w_ctx()
             assert ctx != None, "parent Context has gone away"
-            cb(ctx, status, cb_data)
+            cb(ctx, status, c_command_data, cb_data)
         #end c_cb
 
     #begin ftruncate_async_cb
@@ -2257,7 +2258,7 @@ class File :
 
     async def ftruncate_async(self, length) :
 
-        def ftruncate_done(ctx, status, _) :
+        def ftruncate_done(ctx, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
@@ -2832,7 +2833,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin connect_async_cb
@@ -2847,7 +2848,7 @@ class Context :
 
     async def connect_async(self, server) :
 
-        def connect_done(self, status, _) :
+        def connect_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
@@ -2878,7 +2879,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin connect_share_async_cb
@@ -2899,7 +2900,7 @@ class Context :
 
     async def connect_share_async(self, server, share, user = None) :
 
-        def connect_share_done(self, status, _) :
+        def connect_share_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
@@ -2945,7 +2946,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin disconnect_share_async_cb
@@ -2959,7 +2960,7 @@ class Context :
 
     async def disconnect_share_async(self) :
 
-        def disconnect_share_done(self, status, _) :
+        def disconnect_share_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3211,7 +3212,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin unlink_async_cb
@@ -3225,7 +3226,7 @@ class Context :
 
     async def unlink_async(self, path) :
 
-        def unlink_done(self, status, _) :
+        def unlink_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3264,7 +3265,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin rmdir_async_cb
@@ -3278,7 +3279,7 @@ class Context :
 
     async def rmdir_async(self, path) :
 
-        def rmdir_done(self, status, _) :
+        def rmdir_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3317,7 +3318,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin mkdir_async_cb
@@ -3331,7 +3332,7 @@ class Context :
 
     async def mkdir_async(self, path) :
 
-        def mkdir_done(self, status, _) :
+        def mkdir_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3487,7 +3488,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin rename_async_cb
@@ -3501,7 +3502,7 @@ class Context :
 
     async def rename_async(self, oldpath, newpath) :
 
-        def rename_done(self, status, _) :
+        def rename_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3540,7 +3541,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin truncate_async_cb
@@ -3554,7 +3555,7 @@ class Context :
 
     async def truncate_async(self, path, length) :
 
-        def truncate_done(self, status, _) :
+        def truncate_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3657,7 +3658,7 @@ class Context :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin open_async_cb
@@ -3671,7 +3672,7 @@ class Context :
 
     async def echo_async(self) :
 
-        def echo_done(self, status, _) :
+        def echo_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status != 0 :
@@ -3810,7 +3811,7 @@ def def_async_cmds() :
                     reply = ct.cast(c_command_data, ct.POINTER(replytype)).contents
                     cb(self, - nterror_to_errno(status), reply, cb_data)
                 else :
-                    cb(self, - nterror_to_errno(status), cb_data)
+                    cb(self, - nterror_to_errno(status), c_command_data, cb_data)
                 #end if
             #end c_cb
 
@@ -3829,36 +3830,21 @@ def def_async_cmds() :
 
         def cmd_async(self, req) :
 
-            if has_reply :
-
-                def cmd_done(self, status, reply, _) :
-                    awaiting = ref_awaiting()
-                    if awaiting != None :
-                        if status != 0 :
-                            awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
-                        else :
-                            if process_reply != None :
-                                reply = process_reply(self, reply)
-                            #end if
-                            awaiting.set_result(reply)
+            def cmd_done(self, status, reply, _) :
+                awaiting = ref_awaiting()
+                if awaiting != None :
+                    if status != 0 :
+                        awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
+                    elif has_reply :
+                        if process_reply != None :
+                            reply = process_reply(self, reply)
                         #end if
+                        awaiting.set_result(reply)
+                    else :
+                        awaiting.set_result(None)
                     #end if
-                #end cmd_done
-
-            else :
-
-                def cmd_done(self, status, _) :
-                    awaiting = ref_awaiting()
-                    if awaiting != None :
-                        if status != 0 :
-                            awaiting.set_exception(SMB2OSError(status, "on %s done" % methname))
-                        else :
-                            awaiting.set_result(None)
-                        #end if
-                    #end if
-                #end cmd_done
-
-            #end if
+                #end if
+            #end cmd_done
 
         #begin cmd_async
             assert self.loop != None, "no event loop to attach coroutines to"
@@ -3907,7 +3893,7 @@ def def_async_cmds() :
                 ref_cb = None
                 self = w_self()
                 assert self != None, "parent Context has gone away"
-                cb(self, - nterror_to_errno(status), cb_data)
+                cb(self, - nterror_to_errno(status), c_command_data, cb_data)
             #end c_cb
 
         #begin cmd_async_cb
@@ -3922,7 +3908,7 @@ def def_async_cmds() :
 
         def cmd_async(self) :
 
-            def cmd_done(self, status, _) :
+            def cmd_done(self, status, c_command_data, _) :
                 awaiting = ref_awaiting()
                 if awaiting != None :
                     if status != 0 :
@@ -4061,7 +4047,7 @@ class DCERPCContext :
             ref_cb = None
             self = w_self()
             assert self != None, "parent Context has gone away"
-            cb(self, status, cb_data)
+            cb(self, status, c_command_data, cb_data)
         #end c_cb
 
     #begin connect_context_async_cb
@@ -4079,7 +4065,7 @@ class DCERPCContext :
 
     async def connect_context_async(self, path, syntax) :
 
-        def connect_done(self, status, _) :
+        def connect_done(self, status, c_command_data, _) :
             awaiting = ref_awaiting()
             if awaiting != None :
                 if status < 0 :
