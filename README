@@ -17,5 +17,12 @@ class, which offers you a convenient way of creating a command
 sequence, and then selectively awaiting the completion of any
 particular step, or of all steps.
 
+Unfortunately, `libsmb2` does not seem to be well documented. I had to
+figure out many things by consulting the example programs included in
+its source tree. My own examples, largely based on these ones, are
+available in my `pysmb2_examples` repo on
+([GitLab](https://gitlab.com/ldo/pysmb2_examples) and
+[GitHub](https://github.com/ldo/pysmb2_examples)).
+
 Lawrence D'Oliveiro <ldo@geek-central.gen.nz>
 2020 October 28
