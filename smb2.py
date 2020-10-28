@@ -2319,6 +2319,33 @@ class URL :
     # share
     # path
 
+    def unparse(self) :
+        "converts the parsed components back to URL form."
+        return \
+            {
+                "smb://%(domain)s%(user)s%(server)s%(path)s"
+            %
+                {
+                    "domain" :
+                        (
+                            lambda : "",
+                            lambda : "%s;" % self.domain,
+                        )[self.domain != None](),
+                    "user" :
+                        (
+                            lambda : "",
+                            lambda : "%s@" % self.user,
+                        )[self.user != None](),
+                    "server" : self.server,
+                    "path" :
+                        (
+                            lambda : "",
+                            lambda : "/%s" % self.path,
+                        )[self.path != None](),
+                }
+            }
+    #end unparse
+
 #end URL
 def def_url_field(name) :
 
