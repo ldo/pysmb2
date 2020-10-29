@@ -2805,13 +2805,23 @@ class Context :
             self
     #end set_security_mode
 
-    def set_seal(self, val) :
-        smb2.smb2_set_seal(self._smbobj, val)
+    def set_seal(self, seal) :
+        if not isinstance(seal, bool) :
+            raise TypeError("seal value should be a bool")
+        #end if
+        smb2.smb2_set_seal(self._smbobj, seal)
         return \
             self
     #end set_seal
 
-    # TODO: set_sign
+    def set_signing(self, signing) :
+        if not isinstance(signing, bool) :
+            raise TypeError("signing value should be a bool")
+        #end if
+        smb2.smb2_set_sign(self._smbobj, int(signing))
+        return \
+            self
+    #end set_signing
 
     def set_authentication(self, val) :
         smb2.smb2_set_authentication(self._smbobj, val)
@@ -3727,7 +3737,7 @@ class Context :
           )
     #end echo
 
-    # TODO: free_data
+    # not implemented: free_data (low-level call made directly where needed)
 
     # Methods defined in def_async_cmds() below:
     #     cmd_negotiate_async_cb(self, req, cb, cb_data)
