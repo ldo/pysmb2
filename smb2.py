@@ -2541,7 +2541,7 @@ class CmdSequence :
     "\n" \
     "    seq = ctx.new_cmd_seq()\n" \
     "    seq.cmd_create_async(\"create\", «create_parms»)\n" \
-    "    seq.cmd_query_info_async(\"query_info\", «query_parms»)\n" \
+    "    seq.cmd_query_info_async(\"query_info\", «query_parms», «reply_type»)\n" \
     "    seq.cmd_close_async(\"close\", «close_parms»)\n" \
     "    seq.queue()\n" \
     "\n" \
@@ -3758,8 +3758,9 @@ class Context :
     #     cmd_query_directory_async(self, req)
     #         req is a query_directory_request, result is a query_directory_reply
     #     cmd_query_info_async_cb(self, req, cb, cb_data)
-    #     cmd_query_info_async(self, req)
-    #         req is a query_info_request, result is a query_info_reply
+    #     cmd_query_info_async(self, req, reply_type)
+    #         req is a query_info_request, reply_type is the
+    #         expected reply type, result is a structure of that type.
     #     cmd_set_info_async_cb(self, req, cb, cb_data)
     #     cmd_set_info_async(self, req)
     #         req is a set_info_request, result is None
@@ -3794,14 +3795,16 @@ class Context :
     #end create_dcerpc
 
 #end Context
+
 def def_async_cmds() :
-    # Common routine for defining a whole bunch of very similar methods.
-    # Each one is provided in two forms: cmd_xxx_async_cb, and
-    # cmd_xxx_async. The _cb form takes a user-specified callback
-    # which is invoked with the completion status and possibly other
-    # info when the command completes, while the one without _cb
-    # returns a future which can be awaited to retrieve the completion
-    # result (or an exception if there was an error).
+    # Common routine for defining a whole bunch of very similar
+    # methods on the Context and CmdSequence classes. Each one is
+    # provided in two forms: cmd_xxx_async_cb, and cmd_xxx_async. The
+    # _cb form takes a user-specified callback which is invoked with
+    # the completion status and possibly other info when the command
+    # completes, while the one without _cb returns a future which can
+    # be awaited to retrieve the completion result (or an exception if
+    # there was an error).
 
     def process_query_info_reply(self, reply, reply_type) :
         return \
