@@ -2322,7 +2322,7 @@ class URL :
     def unparse(self) :
         "converts the parsed components back to URL form."
         return \
-            {
+            (
                 "smb://%(domain)s%(user)s%(server)s%(path)s"
             %
                 {
@@ -2343,7 +2343,7 @@ class URL :
                             lambda : "/%s" % self.path,
                         )[self.path != None](),
                 }
-            }
+            )
     #end unparse
 
 #end URL
