@@ -1,5 +1,5 @@
 `pysmb2` is a pure-Python binding for the [libsmb2
-library](https://git.samba.org/?p=libsmb2.git;a=summary), for Python
+library](https://github.com/sahlberg/libsmb2), for Python
 3.5 or later. Unlike the older `libsmbclient`, `libsmb2` allows for
 nonblocking calls. This is done by allowing the caller to specify
 completion callbacks that are invoked when asynchronous calls
@@ -25,4 +25,4 @@ available in my `pysmb2_examples` repo on
 [GitHub](https://github.com/ldo/pysmb2_examples)).
 
 Lawrence D'Oliveiro <ldo@geek-central.gen.nz>
-2020 October 28
+2020 October 29
