@@ -1402,9 +1402,9 @@ smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
 smb2.srvsvc_NetShareEnumAll_encoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
 smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
 smb2.srvsvc_NetShareGetInfo_decoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
+smb2.srvsvc_NetShareGetInfo_decoder.restype = ct.c_int
 smb2.srvsvc_NetShareGetInfo_encoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareEnumAll_encoder.restype = ct.c_int
+smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
 
 # from smb2/libsmb2.h:
 
