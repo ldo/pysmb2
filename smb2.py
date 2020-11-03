@@ -1206,6 +1206,10 @@ class SMB2 :
     PTR_UNIQUE = 1
     PTR_FULL = 2
 
+    # direction arg for dcerpc_allocate_pdu
+    DCERPC_DECODE = 0
+    DCERPC_ENCODE = 1
+
     class dcerpc_uuid(ct.Structure) :
         _fields_ = \
             [
@@ -1368,43 +1372,37 @@ smb2.dcerpc_call_async.argtypes = \
     SMB2.dcerpc_coder, ct.c_int, SMB2.dcerpc_cb, ct.c_void_p)
 smb2.dcerpc_call_async.restype = ct.c_int
 
-smb2.dcerpc_decode_ptr.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int,
-    ct.c_void_p, SMB2.ptr_type, SMB2.dcerpc_coder)
-smb2.dcerpc_decode_ptr.restype = ct.c_int
-smb2.dcerpc_decode_32.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.dcerpc_decode_32.restype = ct.c_int
-smb2.dcerpc_decode_3264.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.dcerpc_decode_3264.restype = ct.c_int
-smb2.dcerpc_decode_ucs2z.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.dcerpc_decode_ucs2z.restype = ct.c_int
-smb2.dcerpc_encode_ptr.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int,
-    ct.c_void_p, SMB2.ptr_type, SMB2.dcerpc_coder)
-smb2.dcerpc_encode_ptr.restype = ct.c_int
-smb2.dcerpc_encode_ucs2z.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.dcerpc_encode_ucs2z.restype = ct.c_int
-smb2.dcerpc_encode_32.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.dcerpc_encode_32.restype = ct.c_int
-smb2.dcerpc_encode_3264.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_uint64)
-smb2.dcerpc_encode_3264.restype = ct.c_int
+smb2.dcerpc_ptr_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p, SMB2.ptr_type, SMB2.dcerpc_coder)
+smb2.dcerpc_ptr_coder.restype = ct.c_int
+smb2.dcerpc_uint8_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_uint8_coder.restype = ct.c_int
+smb2.dcerpc_uint16_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_uint16_coder.restype = ct.c_int
+smb2.dcerpc_uint32_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_uint32_coder.restype = ct.c_int
+smb2.dcerpc_uint3264_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_uint3264_coder.restype = ct.c_int
+smb2.dcerpc_ucs2_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_ucs2_coder.restype = ct.c_int
+smb2.dcerpc_ucs2z_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_ucs2z_coder.restype = ct.c_int
+smb2.dcerpc_context_handle_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.dcerpc_context_handle_coder.restype = ct.c_int
+smb2.dcerpc_allocate_pdu.argtypes = (SMB2.dcerpc_context_ptr, ct.c_int, ct.c_int)
+smb2.dcerpc_allocate_pdu.restype = SMB2.dcerpc_pdu_ptr
+smb2.dcerpc_free_pdu.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr)
+smb2.dcerpc_free_pdu.restype = None
 
 # from smb2/libsmb2-dcerpc-srvsvc.h:
 
-smb2.srvsvc_NetShareEnumAll_decoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
-smb2.srvsvc_NetShareEnumAll_encoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
-smb2.srvsvc_NetShareGetInfo_decoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareGetInfo_decoder.restype = ct.c_int
-smb2.srvsvc_NetShareGetInfo_encoder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
+smb2.srvsvc_NetrShareEnum_rep_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetrShareEnum_rep_coder.restype = ct.c_int
+smb2.srvsvc_NetrShareEnum_req_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetrShareEnum_req_coder.restype = ct.c_int
+smb2.srvsvc_NetrShareGetInfo_rep_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetrShareGetInfo_rep_coder.restype = ct.c_int
+smb2.srvsvc_NetrShareGetInfo_req_coder.argtypes = (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
+smb2.srvsvc_NetrShareGetInfo_req_coder.restype = ct.c_int
 
 # from smb2/libsmb2.h:
 
@@ -1637,21 +1635,6 @@ smb2.smb2_cmd_logoff_async.restype = SMB2.pdu_ptr
 smb2.smb2_cmd_flush_async.argtypes = \
     (SMB2.context_ptr, ct.POINTER(SMB2.flush_request), SMB2.command_cb, ct.c_void_p)
 smb2.smb2_cmd_flush_async.restype = SMB2.pdu_ptr
-
-# from smb2/libsmb2-dcerpc-srvsvc.h:
-
-smb2.srvsvc_NetShareEnumAll_decoder.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareEnumAll_decoder.restype = ct.c_int
-smb2.srvsvc_NetShareEnumAll_encoder.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareEnumAll_encoder.restype = ct.c_int
-smb2.srvsvc_NetShareGetInfo_decoder.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareGetInfo_decoder.restype = ct.c_int
-smb2.srvsvc_NetShareGetInfo_encoder.argtypes = \
-    (SMB2.dcerpc_context_ptr, SMB2.dcerpc_pdu_ptr, SMB2.iovec_ptr, ct.c_int, ct.c_void_p)
-smb2.srvsvc_NetShareGetInfo_encoder.restype = ct.c_int
 
 #+
 # Higher-level stuff begins here
@@ -4256,9 +4239,9 @@ class DCERPCContext :
         self.call_async_cb \
           (
             opnum = SMB2.SRVSVC_NETSHAREGETINFO,
-            encoder = smb2.srvsvc_NetShareGetInfo_encoder,
+            encoder = smb2.srvsvc_NetrShareGetInfo_req_coder,
             ptr = ct.byref(req),
-            decoder = smb2.srvsvc_NetShareGetInfo_decoder,
+            decoder = smb2.srvsvc_NetrShareGetInfo_rep_coder,
             decode_size = ct.sizeof(SMB2.srvsvc_netsharegetinfo_rep),
             cb = c_cb,
             cb_data = None
@@ -4289,9 +4272,8 @@ class DCERPCContext :
             await awaiting
     #end get_info_async
 
-    # TODO: decode_ptr/encode_ptr, decode_32/encode_32, decode_3264/encode_3264,
-    #     decode_ucs2z/encode_ucs2z?
-    # TODO: NetShareEnumAll/GetInfo_decoder/encoder?
+    # Do I need wrappers for these:
+    # dcerpc_xxx_coder, dcerpc_allocate/free_pdu, NetrShareEnum/GetInfo_rep/req_coder?
 
 #end DCERPCContext
 
