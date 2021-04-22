@@ -2144,8 +2144,8 @@ class File :
         curoffset = ct.c_uint64()
         SMB2OSError.raise_if \
           (
-            smb2.smb2_lseek(ctx._smbobj, self._smbobj, offset, whence, ct.byref(curoffset),
-            "on lseek")
+            smb2.smb2_lseek(ctx._smbobj, self._smbobj, offset, whence, ct.byref(curoffset)),
+            "on lseek"
           )
         return \
             curoffset.value
