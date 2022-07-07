@@ -4053,7 +4053,7 @@ del def_async_cmds
 
 class DCERPCContext :
     "a wrapper for a dcerpc_context object. Do not instantiate directly; get" \
-    " from create or Context.createdcerpc methods."
+    " from create or Context.create_dcerpc methods."
 
     __slots__ = ("_smbobj", "__weakref__", "loop") # to forestall typos
 
