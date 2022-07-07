@@ -2323,7 +2323,7 @@ class URL :
         "converts the parsed components back to URL form."
         return \
             (
-                "smb://%(domain)s%(user)s%(server)s%(path)s"
+                "smb://%(domain)s%(user)s%(server)s/%(share)s%(path)s"
             %
                 {
                     "domain" :
@@ -2336,7 +2336,16 @@ class URL :
                             lambda : "",
                             lambda : "%s@" % self.user,
                         )[self.user != None](),
-                    "server" : self.server,
+                    "server" :
+                        (
+                            lambda : "",
+                            lambda : self.server,
+                        )[self.server != None](),
+                    "share" :
+                        (
+                            lambda : "",
+                            lambda : self.share,
+                        )[self.share != None](),
                     "path" :
                         (
                             lambda : "",
