@@ -2918,7 +2918,7 @@ class Context :
             #end if
         #end connect_done
 
-    #begin connect_share_async
+    #begin connect_async
         assert self.loop != None, "no event loop to attach coroutines to"
         awaiting = self.loop.create_future()
         ref_awaiting = weak_ref(awaiting)
