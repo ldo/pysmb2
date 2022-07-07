@@ -2813,13 +2813,26 @@ class Context :
     #end set_authentication
 
     def set_user(self, user) :
-        smb2.smb2_set_user(self._smbobj, user.encode())
+        "sets the username for authentication. If not None and the environment" \
+        " variable NTLM_USER_FILE is defined and is the pathname of an accessible" \
+        " file, that file is read to obtain the corresponding password for this" \
+        " username."
+        smb2.smb2_set_user \
+          (
+            self._smbobj,
+            (lambda : None, lambda : user.encode())[user != None]()
+          )
         return \
             self
     #end set_user
 
     def set_password(self, password) :
-        smb2.smb2_set_password(self._smbobj, password.encode())
+        "explicitly sets the password for authentication. password can be None."
+        smb2.smb2_set_password \
+          (
+            self._smbobj,
+            (lambda : None, lambda : password.encode())[password != None]()
+          )
         return \
             self
     #end set_user
@@ -3141,6 +3154,12 @@ class Context :
     #end share_enum_async
 
     def parse_url(self, urlstr) :
+        "parses a “smb://” URL which points to a server and optionally a" \
+        " share on that server, returning a URL object containing the parsed" \
+        " domain, host name, share/path and username as appropriate. Note that" \
+        " there is no option in libsmb2 to include the password in the URL. It" \
+        " can also specify arguments controlling various protocol options; these" \
+        " settings are saved in this Context, not in the returned URL object."
         result = smb2.smb2_parse_url(self._smbobj, urlstr.encode())
         if result == None or ct.cast(result, ct.c_void_p).value == None :
             self.raise_error("parsing url")
