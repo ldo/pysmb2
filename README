@@ -22,7 +22,7 @@ figure out many things by consulting the example programs included in
 its source tree. My own examples, largely based on these ones, are
 available in my `pysmb2_examples` repo on
 ([GitLab](https://gitlab.com/ldo/pysmb2_examples) and
-[GitHub](https://github.com/ldo/pysmb2_examples)).
+[BitBucket](https://bitbucket.org/ldo17/pysmb2_examples)).
 
 Lawrence D'Oliveiro <ldo@geek-central.gen.nz>
-2020 October 29
+2023 September 25
