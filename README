@@ -1,28 +1,4 @@
-`pysmb2` is a pure-Python binding for the [libsmb2
-library](https://github.com/sahlberg/libsmb2), for Python
-3.5 or later. Unlike the older `libsmbclient`, `libsmb2` allows for
-nonblocking calls. This is done by allowing the caller to specify
-completion callbacks that are invoked when asynchronous calls
-complete. Actual servicing of these calls is done, not by
-multithreading, but by hooking into the caller’s event loop. `pysmb2`
-uses these hooks to interface with the standard Python `asyncio`
-library, allowing you to make asynchronous calls to `libsmb2` services
-using high-level `async`/`await` syntax.
-
-`libsmb2` provides a number of ways of doing asynchronous calls, all
-of which are supported in `pysmb2`. This also includes a mechanism for
-chaining multiple calls into a single sequence of what `libsmb2` calls
-“pdu” objects. On top of this, `pysmb2` implements a `CmdSequence`
-class, which offers you a convenient way of creating a command
-sequence, and then selectively awaiting the completion of any
-particular step, or of all steps.
-
-Unfortunately, `libsmb2` does not seem to be well documented. I had to
-figure out many things by consulting the example programs included in
-its source tree. My own examples, largely based on these ones, are
-available in my `pysmb2_examples` repo on
-([GitLab](https://gitlab.com/ldo/pysmb2_examples) and
-[BitBucket](https://bitbucket.org/ldo17/pysmb2_examples)).
-
-Lawrence D'Oliveiro <ldo@geek-central.gen.nz>
-2023 September 25
+This project is no longer being maintained on GitHub.
+Look for it at one of
+* gitlab: https://gitlab.com/ldo/pysmb2
+* bitbucket: https://bitbucket.org/ldo17/pysmb2
